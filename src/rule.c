@@ -28,6 +28,8 @@ void rule_serialize(FILE *rsp, struct rule *rule, int index)
             display_arrangement(rule->did),
             space_manager_mission_control_index(rule->sid),
             json_bool(rule->follow_space),
+            rule->role ? rule->role : "",
+            rule->subrole ? rule->subrole : "",
             rule->alpha,
             json_optional_bool(rule->manage),
             json_optional_bool(rule->sticky),
