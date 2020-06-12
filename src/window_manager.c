@@ -104,7 +104,7 @@ void window_manager_apply_rule_to_window(struct space_manager *sm, struct window
 {
     char * subrole = NULL;
     char * role = NULL;
-    
+
     CFStringRef cfrole = window_role(window);
     if (cfrole) {
         role = cfstring_copy(cfrole);
@@ -1293,7 +1293,7 @@ void window_manager_send_window_to_space(struct space_manager *sm, struct window
 
     space_manager_move_window_to_space(dst_sid, window);
 
-    if (window_manager_should_manage_window(window) && !window->is_minimized) {
+    if (window_manager_should_manage_window(window) && !window->is_minimized && !window->is_floating) {
         struct view *view = space_manager_tile_window_on_space(sm, window, dst_sid);
         window_manager_add_managed_window(wm, window, view);
     }
@@ -1561,7 +1561,7 @@ static void window_manager_check_for_windows_on_space(struct space_manager *sm, 
     for (int i = 0; i < window_count; ++i) {
         struct window *window = window_manager_find_window(wm, window_list[i]);
         if (!window || !window_manager_should_manage_window(window)) continue;
-        if (window->is_minimized || window->application->is_hidden)  continue;
+        if (window->is_minimized || window->application->is_hidden || window->is_floating)  continue;
 
         struct view *existing_view = window_manager_find_managed_window(wm, window);
         if (existing_view && existing_view->layout != VIEW_FLOAT && existing_view->sid != sid) {
