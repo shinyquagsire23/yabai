@@ -979,20 +979,6 @@ struct window *window_manager_create_and_add_window(struct space_manager *sm, st
 {
     struct window *window = window_create(application, window_ref, window_id);
 
-    if (window_is_unknown(window)) {
-        debug("%s: ignoring AXUnknown window %s %d\n", __FUNCTION__, window->application->name, window->id);
-        window_manager_remove_lost_focused_event(wm, window->id);
-        window_destroy(window);
-        return NULL;
-    }
-
-    if (window_is_popover(window)) {
-        debug("%s: ignoring AXPopover window %s %d\n", __FUNCTION__, window->application->name, window->id);
-        window_manager_remove_lost_focused_event(wm, window->id);
-        window_destroy(window);
-        return NULL;
-    }
-
     window_manager_purify_window(wm, window);
     window_manager_set_window_opacity(wm, window, wm->normal_window_opacity);
 
