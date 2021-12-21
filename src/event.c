@@ -757,7 +757,8 @@ static EVENT_CALLBACK(EVENT_HANDLER_MOUSE_UP)
             mouse_drop_no_target(&g_space_manager, &g_window_manager, src_view, dst_view, g_mouse_state.window, a_node);
         }
     } else {
-        mouse_drop_try_adjust_bsp_grid(&g_window_manager, src_view, g_mouse_state.window, &info);
+        //if (g_mouse_state.current_action != MOUSE_MODE_RESIZE)
+            mouse_drop_try_adjust_bsp_grid(&g_window_manager, src_view, g_mouse_state.window, &info);
     }
 
 err:
@@ -783,7 +784,7 @@ static EVENT_CALLBACK(EVENT_HANDLER_MOUSE_DRAGGED)
     }
 
     CGPoint point = CGEventGetLocation(context);
-    debug("%s: %.2f, %.2f\n", __FUNCTION__, point.x, point.y);
+    debug("%s: %.2f, %.2f %x\n", __FUNCTION__, point.x, point.y, g_mouse_state.window->id);
 
     if (g_mouse_state.current_action == MOUSE_MODE_MOVE) {
         CGPoint new_point = { g_mouse_state.window_frame.origin.x + (point.x - g_mouse_state.down_location.x),
@@ -795,11 +796,35 @@ static EVENT_CALLBACK(EVENT_HANDLER_MOUSE_DRAGGED)
             if (new_point.y < bounds.origin.y) new_point.y = bounds.origin.y;
         }
 
-        scripting_addition_move_window(g_mouse_state.window->id, new_point.x, new_point.y);
+        if (g_mouse_state.window->is_floating)
+        {
+            scripting_addition_move_window(g_mouse_state.window->id, new_point.x, new_point.y);
+        }
+        else
+        {
+            struct view *src_view = window_manager_find_managed_window(&g_window_manager, g_mouse_state.window);
+            if (!src_view) goto out;
+
+            uint64_t cursor_sid = display_space_id(display_manager_point_display_id(point));
+            struct view *dst_view = space_manager_find_view(&g_space_manager, cursor_sid);
+
+            struct window *window = window_manager_find_window_at_point_filtering_window(&g_window_manager, point, g_mouse_state.window->id);
+            if (!window) window = window_manager_find_window_at_point(&g_window_manager, point);
+            if (window == g_mouse_state.window) window = NULL;
+
+            struct window_node *a_node = view_find_window_node(src_view, g_mouse_state.window->id);
+            struct window_node *b_node = window ? view_find_window_node(dst_view, window->id) : NULL;
+
+            if (window && a_node && b_node && a_node != b_node) {
+                mouse_drop_action_swap(&g_window_manager, src_view, a_node, g_mouse_state.window, dst_view, b_node, window);
+
+                debug("%s: hovering %.2f, %.2f %x\n", __FUNCTION__, point.x, point.y, window->id);
+            }
+        }
     } else if (g_mouse_state.current_action == MOUSE_MODE_RESIZE) {
         uint64_t event_time = CGEventGetTimestamp(context);
         float dt = ((float) event_time - g_mouse_state.last_moved_time) * (1.0f / 1E6);
-        if (dt < 66.67f) goto out;
+        if (dt < 8.0f) goto out;
 
         int dx = point.x - g_mouse_state.down_location.x;
         int dy = point.y - g_mouse_state.down_location.y;
@@ -813,7 +838,10 @@ static EVENT_CALLBACK(EVENT_HANDLER_MOUSE_DRAGGED)
         if (point.x > frame_mid.x) direction |= HANDLE_RIGHT;
         if (point.y > frame_mid.y) direction |= HANDLE_BOTTOM;
 
+        //direction |= HANDLE_ABS;
+
         window_manager_resize_window_relative_internal(g_mouse_state.window, frame, direction, dx, dy);
+        //window_manager_resize_window_relative(&g_window_manager, g_mouse_state.window, direction, dx, dy);
 
         g_mouse_state.last_moved_time = event_time;
         g_mouse_state.down_location = point;
@@ -832,7 +860,7 @@ static EVENT_CALLBACK(EVENT_HANDLER_MOUSE_MOVED)
 
     uint64_t event_time = CGEventGetTimestamp(context);
     float dt = ((float) event_time - g_mouse_state.last_moved_time) * (1.0f / 1E6);
-    if (dt < 25.0f) goto out;
+    if (dt < 8.0f) goto out;
 
     CGPoint point = CGEventGetLocation(context);
     g_mouse_state.last_moved_time = event_time;
