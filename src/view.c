@@ -6,6 +6,7 @@ extern struct window_manager g_window_manager;
 
 void insert_feedback_show(struct window_node *node)
 {
+    #if 0
     CFTypeRef frame_region;
     CGRect frame = {{(int)node->area.x, (int)node->area.y},{(int)(node->area.w+0.5f), (int)(node->area.h+0.5f)}};
     CGSNewRegionWithRect(&frame, &frame_region);
@@ -90,6 +91,7 @@ void insert_feedback_show(struct window_node *node)
     SLSReenableUpdate(g_connection);
     CGPathRelease(outline);
     CFRelease(frame_region);
+    #endif
 }
 
 void insert_feedback_destroy(struct window_node *node)
@@ -325,6 +327,27 @@ void window_node_flush(struct window_node *node)
     if (!window_node_is_leaf(node)) {
         window_node_flush(node->left);
         window_node_flush(node->right);
+    }
+}
+
+void window_node_flush_fast(struct window_node *node)
+{
+    if (window_node_is_occupied(node)) {
+        for (int i = 0; i < node->window_count; ++i) {
+            struct window *window = window_manager_find_window(&g_window_manager, node->window_list[i]);
+            if (window) {
+                if (node->zoom) {
+                    window_manager_set_window_frame_fast(window, node->zoom->area.x, node->zoom->area.y, node->zoom->area.w, node->zoom->area.h);
+                } else {
+                    window_manager_set_window_frame_fast(window, node->area.x, node->area.y, node->area.w, node->area.h);
+                }
+            }
+        }
+    }
+
+    if (!window_node_is_leaf(node)) {
+        window_node_flush_fast(node->left);
+        window_node_flush_fast(node->right);
     }
 }
 
@@ -721,6 +744,12 @@ bool view_is_dirty(struct view *view)
 void view_flush(struct view *view)
 {
     window_node_flush(view->root);
+    view->is_dirty = false;
+}
+
+void view_flush_fast(struct view *view)
+{
+    window_node_flush_fast(view->root);
     view->is_dirty = false;
 }
 

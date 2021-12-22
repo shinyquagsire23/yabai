@@ -48,6 +48,7 @@ struct mouse_state
     enum mouse_mode drop_action;
     volatile uint8_t modifier;
     CGPoint down_location;
+    CGPoint resize_down_location;
     uint64_t last_moved_time;
     struct window *window;
     CGRect window_frame;

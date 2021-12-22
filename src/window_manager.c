@@ -416,8 +416,16 @@ enum window_op_error window_manager_resize_window_relative(struct window_manager
             x_fence->ratio = min(1, max(0, sr));
         }
 
-        view_update(view);
-        view_flush(view);
+        if (!(direction & HANDLE_DONT_UPDATE)) {
+            view_update(view);
+        }
+
+        if (!(direction & HANDLE_DONT_FLUSH)) {
+            AX_ENHANCED_UI_WORKAROUND(window->application->ref, {
+                view_flush_fast(view);
+            });
+        }
+        
     } else {
         if (direction == HANDLE_ABS) {
             AX_ENHANCED_UI_WORKAROUND(window->application->ref, {
@@ -438,7 +446,7 @@ void window_manager_move_window(struct window *window, float x, float y)
     if (!position_ref) return;
 
     if (AXUIElementSetAttributeValue(window->ref, kAXPositionAttribute, position_ref) == kAXErrorSuccess) {
-        if (window->border.id) SLSMoveWindow(g_connection, window->border.id, &position);
+        //if (window->border.id) SLSMoveWindow(g_connection, window->border.id, &position);
     }
 
     CFRelease(position_ref);
@@ -461,6 +469,12 @@ void window_manager_set_window_frame(struct window *window, float x, float y, fl
         window_manager_move_window(window, x, y);
         window_manager_resize_window(window, width, height);
     });
+}
+
+void window_manager_set_window_frame_fast(struct window *window, float x, float y, float width, float height)
+{
+    window_manager_move_window(window, x, y);
+    window_manager_resize_window(window, width, height);
 }
 
 void window_manager_set_purify_mode(struct window_manager *wm, enum purify_mode mode)

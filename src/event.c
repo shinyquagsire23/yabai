@@ -328,6 +328,9 @@ static EVENT_CALLBACK(EVENT_HANDLER_WINDOW_CREATED)
         window_manager_add_managed_window(&g_window_manager, window, view);
     }
 
+    // HACK: fix finder tabs leaving gaps
+    window_manager_correct_for_mission_control_changes(&g_space_manager, &g_window_manager);
+
     event_signal_push(SIGNAL_WINDOW_CREATED, window);
     return EVENT_SUCCESS;
 
@@ -440,6 +443,8 @@ static EVENT_CALLBACK(EVENT_HANDLER_WINDOW_RESIZED)
         return EVENT_FAILURE;
     }
 
+    window->resize_done = true;
+
     CGRect new_frame = window_ax_frame(window);
     if (CGRectEqualToRect(new_frame, window->frame)) {
         debug("%s:DEBOUNCED %s %d\n", __FUNCTION__, window->application->name, window->id);
@@ -453,6 +458,7 @@ static EVENT_CALLBACK(EVENT_HANDLER_WINDOW_RESIZED)
     bool is_fullscreen = window_is_fullscreen(window);
     window->is_fullscreen = is_fullscreen;
     window->frame = new_frame;
+    
 
     if (!was_fullscreen && is_fullscreen) {
         window_manager_make_window_topmost(&g_window_manager, window, false);
@@ -479,7 +485,7 @@ static EVENT_CALLBACK(EVENT_HANDLER_WINDOW_RESIZED)
             g_mouse_state.window_frame.size = g_mouse_state.window->frame.size;
         }
 
-        border_resize(window);
+        //border_resize(window);
     }
 
     return EVENT_SUCCESS;
@@ -688,6 +694,11 @@ static EVENT_CALLBACK(EVENT_HANDLER_MOUSE_DOWN)
         g_mouse_state.current_action = g_mouse_state.action2;
     }
 
+    if (g_mouse_state.current_action == MOUSE_MODE_RESIZE) {
+        g_mouse_state.resize_down_location = point;
+        g_mouse_state.window->resize_done = true;
+    }
+
 out:
     CFRelease(context);
     return EVENT_SUCCESS;
@@ -757,7 +768,7 @@ static EVENT_CALLBACK(EVENT_HANDLER_MOUSE_UP)
             mouse_drop_no_target(&g_space_manager, &g_window_manager, src_view, dst_view, g_mouse_state.window, a_node);
         }
     } else {
-        //if (g_mouse_state.current_action != MOUSE_MODE_RESIZE)
+        if (g_mouse_state.current_action != MOUSE_MODE_RESIZE)
             mouse_drop_try_adjust_bsp_grid(&g_window_manager, src_view, g_mouse_state.window, &info);
     }
 
@@ -784,7 +795,7 @@ static EVENT_CALLBACK(EVENT_HANDLER_MOUSE_DRAGGED)
     }
 
     CGPoint point = CGEventGetLocation(context);
-    debug("%s: %.2f, %.2f %x\n", __FUNCTION__, point.x, point.y, g_mouse_state.window->id);
+    //debug("%s: %.2f, %.2f %x\n", __FUNCTION__, point.x, point.y, g_mouse_state.window->id);
 
     if (g_mouse_state.current_action == MOUSE_MODE_MOVE) {
         CGPoint new_point = { g_mouse_state.window_frame.origin.x + (point.x - g_mouse_state.down_location.x),
@@ -817,34 +828,55 @@ static EVENT_CALLBACK(EVENT_HANDLER_MOUSE_DRAGGED)
 
             if (window && a_node && b_node && a_node != b_node) {
                 mouse_drop_action_swap(&g_window_manager, src_view, a_node, g_mouse_state.window, dst_view, b_node, window);
-
-                debug("%s: hovering %.2f, %.2f %x\n", __FUNCTION__, point.x, point.y, window->id);
             }
         }
     } else if (g_mouse_state.current_action == MOUSE_MODE_RESIZE) {
         uint64_t event_time = CGEventGetTimestamp(context);
-        float dt = ((float) event_time - g_mouse_state.last_moved_time) * (1.0f / 1E6);
-        if (dt < 8.0f) goto out;
+        float dt = ((double) (event_time - g_mouse_state.last_moved_time)) * (1.0f / 1E6);
+        //debug("%s: resize %.2f, %.2f %x %.2f\n", __FUNCTION__, point.x, point.y, g_mouse_state.window->id, dt);
 
-        int dx = point.x - g_mouse_state.down_location.x;
-        int dy = point.y - g_mouse_state.down_location.y;
+        float rate = g_mouse_state.window->is_floating ? 8.0f : 8.0f;
+        if (dt < rate) goto out;
+
+        if (!g_mouse_state.window->resize_done && dt < rate * 4.0f) goto out;
+
+        float dx = point.x - g_mouse_state.resize_down_location.x;
+        float dy = point.y - g_mouse_state.resize_down_location.y;
+
+        if (dx == 0.0f && dy == 0.0f)
+            goto out;
 
         uint8_t direction = 0;
-        CGRect frame = g_mouse_state.window->frame;
+        CGRect frame = g_mouse_state.window_frame;//g_mouse_state.window->frame;
         CGPoint frame_mid = { CGRectGetMidX(frame), CGRectGetMidY(frame) };
 
-        if (point.x < frame_mid.x) direction |= HANDLE_LEFT;
-        if (point.y < frame_mid.y) direction |= HANDLE_TOP;
-        if (point.x > frame_mid.x) direction |= HANDLE_RIGHT;
-        if (point.y > frame_mid.y) direction |= HANDLE_BOTTOM;
+        if (g_mouse_state.down_location.x < frame_mid.x) direction |= HANDLE_LEFT;
+        if (g_mouse_state.down_location.y < frame_mid.y) direction |= HANDLE_TOP;
+        if (g_mouse_state.down_location.x > frame_mid.x) direction |= HANDLE_RIGHT;
+        if (g_mouse_state.down_location.y > frame_mid.y) direction |= HANDLE_BOTTOM;
 
-        //direction |= HANDLE_ABS;
+        if (g_mouse_state.window->is_floating)
+            direction |= HANDLE_ABS;
 
-        window_manager_resize_window_relative_internal(g_mouse_state.window, frame, direction, dx, dy);
-        //window_manager_resize_window_relative(&g_window_manager, g_mouse_state.window, direction, dx, dy);
+        //if (dt < 16.0f)
+        //    direction |= HANDLE_DONT_FLUSH;
 
-        g_mouse_state.last_moved_time = event_time;
-        g_mouse_state.down_location = point;
+        //direction |= HANDLE_DONT_UPDATE;
+
+        window_manager_resize_window_relative(&g_window_manager, g_mouse_state.window, direction, dx, dy);
+
+        if (dt >= rate) {
+            g_mouse_state.last_moved_time = event_time;
+        }
+        else if (!g_mouse_state.window->is_floating)
+        {
+            window_manager_resize_window_relative_internal(g_mouse_state.window, g_mouse_state.window->frame, direction, dx, dy);
+        }
+        g_mouse_state.resize_down_location = point;
+
+
+
+        g_mouse_state.window->resize_done = false;
     }
 
 out:

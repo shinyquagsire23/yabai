@@ -47,6 +47,7 @@ struct window
     bool rule_fullscreen;
     bool rule_mff;
     bool enable_mff;
+    bool resize_done;
     struct border border;
 };
 

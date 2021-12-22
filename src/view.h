@@ -113,6 +113,7 @@ void insert_feedback_show(struct window_node *node);
 void insert_feedback_destroy(struct window_node *node);
 
 void window_node_flush(struct window_node *node);
+void window_node_flush_fast(struct window_node *node);
 void window_node_update(struct view *view, struct window_node *node);
 bool window_node_contains_window(struct window_node *node, uint32_t window_id);
 int window_node_index_of_window(struct window_node *node, uint32_t window_id);
@@ -133,6 +134,7 @@ void view_serialize(FILE *rsp, struct view *view);
 bool view_is_invalid(struct view *view);
 bool view_is_dirty(struct view *view);
 void view_flush(struct view *view);
+void view_flush_fast(struct view *view);
 void view_update(struct view *view);
 struct view *view_create(uint64_t sid);
 void view_clear(struct view *view);

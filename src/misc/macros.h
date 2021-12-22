@@ -35,6 +35,8 @@
 #define HANDLE_LEFT   0x04
 #define HANDLE_RIGHT  0x08
 #define HANDLE_ABS    0x10
+#define HANDLE_DONT_FLUSH    0x20
+#define HANDLE_DONT_UPDATE 0x40
 
 #define LAYER_BELOW   kCGBackstopMenuLevelKey
 #define LAYER_NORMAL  kCGNormalWindowLevelKey
