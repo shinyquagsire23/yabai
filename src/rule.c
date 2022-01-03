@@ -12,6 +12,8 @@ void rule_serialize(FILE *rsp, struct rule *rule, int index)
             "\t\"display\":%d,\n"
             "\t\"space\":%d,\n"
             "\t\"follow_space\":%s,\n"
+            "\t\"role\":\"%s\",\n"
+            "\t\"subrole\":\"%s\",\n"
             "\t\"opacity\":%.4f,\n"
             "\t\"manage\":%s,\n"
             "\t\"sticky\":%s,\n"
