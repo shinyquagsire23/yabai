@@ -6,12 +6,12 @@ static void *event_loop_run(void *context)
     while (event_loop->is_running) {
         NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
 
-        do {
-            head = event_loop->head;
-            if (!head->next) break;
-        } while (!__sync_bool_compare_and_swap(&event_loop->head, head, head->next));
+        for (;;) {
+            do {
+                head = event_loop->head;
+                if (!head->next) goto empty;
+            } while (!__sync_bool_compare_and_swap(&event_loop->head, head, head->next));
 
-        if (head->next) {
             struct event *event = &head->next->event;
 
             uint32_t result = event_handler[event->type](event->context, event->param1);
@@ -19,11 +19,11 @@ static void *event_loop_run(void *context)
 
             event_signal_flush();
             ts_reset();
-        } else {
-            sem_wait(event_loop->semaphore);
         }
 
+empty:
         [pool drain];
+        sem_wait(event_loop->semaphore);
     }
 
     return NULL;
@@ -31,8 +31,6 @@ static void *event_loop_run(void *context)
 
 void event_loop_post(struct event_loop *event_loop, enum event_type type, void *context, int param1, volatile uint32_t *info)
 {
-    assert(event_loop->is_running);
-
     bool success;
     struct event_loop_item *tail, *new_tail;
 
@@ -72,15 +70,19 @@ bool event_loop_init(struct event_loop *event_loop)
 bool event_loop_begin(struct event_loop *event_loop)
 {
     if (event_loop->is_running) return false;
+
     event_loop->is_running = true;
     pthread_create(&event_loop->thread, NULL, &event_loop_run, event_loop);
+
     return true;
 }
 
 bool event_loop_end(struct event_loop *event_loop)
 {
     if (!event_loop->is_running) return false;
+
     event_loop->is_running = false;
     pthread_join(event_loop->thread, NULL);
+
     return true;
 }

@@ -2485,9 +2485,9 @@ static void *message_loop_run(void *context)
 {
     while (g_message_loop.is_running) {
         int sockfd = accept(g_message_loop.sockfd, NULL, 0);
-        if (sockfd != -1) {
-            event_loop_post(&g_event_loop, DAEMON_MESSAGE, NULL, sockfd, NULL);
-        }
+        if (sockfd == -1) continue;
+
+        event_loop_post(&g_event_loop, DAEMON_MESSAGE, NULL, sockfd, NULL);
     }
 
     return NULL;
@@ -2515,6 +2515,8 @@ bool message_loop_begin(char *socket_path)
     if (listen(g_message_loop.sockfd, SOMAXCONN) == -1) {
         return false;
     }
+
+    fcntl(g_message_loop.sockfd, F_SETFD, FD_CLOEXEC | fcntl(g_message_loop.sockfd, F_GETFD));
 
     g_message_loop.is_running = true;
     pthread_create(&g_message_loop.thread, NULL, &message_loop_run, NULL);
