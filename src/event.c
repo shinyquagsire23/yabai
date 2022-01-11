@@ -313,7 +313,9 @@ static EVENT_CALLBACK(EVENT_HANDLER_WINDOW_CREATED)
     struct window *window = window_manager_create_and_add_window(&g_space_manager, &g_window_manager, application, context, window_id);
     if (!window) goto out;
 
-    if (window_manager_should_manage_window(window) && !window_manager_find_managed_window(&g_window_manager, window)) {
+    window->is_floating = true;
+
+    if (window_manager_should_manage_window(window) && !window_manager_find_managed_window(&g_window_manager, window) && !window->is_floating) {
         uint64_t sid;
 
         if (g_window_manager.window_origin_mode == WINDOW_ORIGIN_DEFAULT) {
@@ -329,7 +331,7 @@ static EVENT_CALLBACK(EVENT_HANDLER_WINDOW_CREATED)
     }
 
     // HACK: fix finder tabs leaving gaps
-    window_manager_correct_for_mission_control_changes(&g_space_manager, &g_window_manager);
+    //window_manager_correct_for_mission_control_changes(&g_space_manager, &g_window_manager);
 
     event_signal_push(SIGNAL_WINDOW_CREATED, window);
     return EVENT_SUCCESS;
