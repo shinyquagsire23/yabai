@@ -1007,7 +1007,7 @@ struct window *window_manager_create_and_add_window(struct space_manager *sm, st
 {
     struct window *window = window_create(application, window_ref, window_id);
 
-    window->is_floating = true;
+    window_set_flag(window, WINDOW_FLOAT);
 
     window_manager_purify_window(wm, window);
     window_manager_set_window_opacity(wm, window, wm->normal_window_opacity);

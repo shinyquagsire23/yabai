@@ -328,9 +328,9 @@ static EVENT_CALLBACK(EVENT_HANDLER_WINDOW_CREATED)
     struct window *window = window_manager_create_and_add_window(&g_space_manager, &g_window_manager, application, context, window_id);
     if (!window) goto out;
 
-    window->is_floating = true;
+    window_set_flag(window, WINDOW_FLOAT);
 
-    if (window_manager_should_manage_window(window) && !window_manager_find_managed_window(&g_window_manager, window) && !window->is_floating) {
+    if (window_manager_should_manage_window(window) && !window_manager_find_managed_window(&g_window_manager, window) && !window_check_flag(window, WINDOW_FLOAT)) {
         uint64_t sid;
 
         if (g_window_manager.window_origin_mode == WINDOW_ORIGIN_DEFAULT) {
@@ -969,7 +969,7 @@ static EVENT_CALLBACK(EVENT_HANDLER_MOUSE_DRAGGED)
             if (new_point.y < bounds.origin.y) new_point.y = bounds.origin.y;
         }
 
-        if (g_mouse_state.window->is_floating)
+        if (window_check_flag(g_mouse_state.window, WINDOW_FLOAT))
         {
             scripting_addition_move_window(g_mouse_state.window->id, new_point.x, new_point.y);
         }
@@ -997,7 +997,7 @@ static EVENT_CALLBACK(EVENT_HANDLER_MOUSE_DRAGGED)
         float dt = ((double) (event_time - g_mouse_state.last_moved_time)) * (1.0f / 1E6);
         //debug("%s: resize %.2f, %.2f %x %.2f\n", __FUNCTION__, point.x, point.y, g_mouse_state.window->id, dt);
 
-        float rate = g_mouse_state.window->is_floating ? 8.0f : 8.0f;
+        float rate = window_check_flag(g_mouse_state.window, WINDOW_FLOAT) ? 8.0f : 8.0f;
         if (dt < rate) goto out;
 
         if (!g_mouse_state.window->resize_done && dt < rate * 4.0f) goto out;
@@ -1017,7 +1017,7 @@ static EVENT_CALLBACK(EVENT_HANDLER_MOUSE_DRAGGED)
         if (g_mouse_state.down_location.x > frame_mid.x) direction |= HANDLE_RIGHT;
         if (g_mouse_state.down_location.y > frame_mid.y) direction |= HANDLE_BOTTOM;
 
-        if (g_mouse_state.window->is_floating)
+        if (window_check_flag(g_mouse_state.window, WINDOW_FLOAT))
             direction |= HANDLE_ABS;
 
         //if (dt < 16.0f)
@@ -1030,7 +1030,7 @@ static EVENT_CALLBACK(EVENT_HANDLER_MOUSE_DRAGGED)
         if (dt >= rate) {
             g_mouse_state.last_moved_time = event_time;
         }
-        else if (!g_mouse_state.window->is_floating)
+        else if (!window_check_flag(g_mouse_state.window, WINDOW_FLOAT))
         {
             window_manager_resize_window_relative_internal(g_mouse_state.window, g_mouse_state.window->frame, direction, dx, dy);
         }
