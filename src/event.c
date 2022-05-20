@@ -221,6 +221,9 @@ static EVENT_CALLBACK(EVENT_HANDLER_APPLICATION_ACTIVATED)
     }
 
     window_did_receive_focus(&g_window_manager, &g_mouse_state, window);
+
+    window_manager_make_window_topmost(&g_window_manager, window, true);
+
     event_signal_push(SIGNAL_WINDOW_FOCUSED, window);
 
     return EVENT_SUCCESS;

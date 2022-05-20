@@ -550,6 +550,7 @@ next:
 
 bool window_manager_set_window_layer(struct window *window, int layer)
 {
+#if 0
     bool result = scripting_addition_set_layer(window->id, layer);
 
     CFArrayRef window_list = SLSCopyAssociatedWindows(g_connection, window->id);
@@ -586,6 +587,8 @@ bool window_manager_set_window_layer(struct window *window, int layer)
     CFRelease(window_list);
 
     return result;
+#endif
+    return true;
 }
 
 void window_manager_make_window_topmost(struct window_manager *wm, struct window *window, bool topmost)
