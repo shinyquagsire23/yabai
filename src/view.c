@@ -15,7 +15,7 @@ void insert_feedback_show(struct window_node *node)
         uint64_t tag = 1ULL << 46;
         SLSNewWindow(g_connection, 2, 0, 0, frame_region, &node->feedback_window.id);
         SLSSetWindowTags(g_connection, node->feedback_window.id, &tag, 64);
-        SLSSetWindowShadowParameters(g_connection, node->feedback_window.id, 0, 0, 0.0, 0.0);
+        sls_window_disable_shadow(node->feedback_window.id);
         SLSSetWindowResolution(g_connection, node->feedback_window.id, 1.0f);
         SLSSetWindowOpacity(g_connection, node->feedback_window.id, 0);
         SLSSetWindowLevel(g_connection, node->feedback_window.id, g_floating_window_level);
@@ -109,11 +109,6 @@ void insert_feedback_destroy(struct window_node *node)
         SLSReleaseWindow(g_connection, node->feedback_window.id);
         memset(&node->feedback_window, 0, sizeof(struct feedback_window));
     }
-}
-
-static inline CGPoint area_center(struct area a)
-{
-    return (CGPoint) { a.x + a.w*0.5f, a.y + a.h*0.5f };
 }
 
 static inline struct area area_from_cgrect(CGRect rect)
@@ -515,43 +510,73 @@ struct window_node *view_find_min_depth_leaf_node(struct window_node *node)
     return NULL;
 }
 
+static inline bool area_is_in_direction(struct area *r1, CGPoint r1_max, struct area *r2, CGPoint r2_max, int direction)
+{
+    if (direction == DIR_NORTH && r1_max.y <= r2->y) return false;
+    if (direction == DIR_EAST  && r2_max.x <= r1->x) return false;
+    if (direction == DIR_SOUTH && r2_max.y <= r1->y) return false;
+    if (direction == DIR_WEST  && r1_max.x <= r2->x) return false;
+
+    if (direction == DIR_NORTH || direction == DIR_SOUTH) {
+        return ((r2_max.x >  r1->x && r2_max.x <= r1_max.x) ||
+                (r2->x    <  r1->x && r2_max.x >  r1_max.x) ||
+                (r2->x    >= r1->x && r2->x    <  r1_max.x));
+    }
+
+    if (direction == DIR_EAST || direction == DIR_WEST) {
+        return ((r2_max.y >  r1->y && r2_max.y <= r1_max.y) ||
+                (r2->y    <  r1->y && r2_max.y >  r1_max.y) ||
+                (r2->y    >= r1->y && r2->y    <  r1_max.y));
+    }
+
+    return false;
+}
+
+static inline int area_distance_in_direction(struct area *r1, CGPoint r1_max, struct area *r2, CGPoint r2_max, int direction)
+{
+    switch (direction) {
+    case DIR_NORTH: {
+        return r2_max.y > r1->y ? r2_max.y - r1->y : r1->y - r2_max.y;
+    } break;
+    case DIR_EAST: {
+        return r2->x < r1_max.x ? r1_max.x - r2->x : r2->x - r1_max.x;
+    } break;
+    case DIR_SOUTH: {
+        return r2->y < r1_max.y ? r1_max.y - r2->y : r2->y - r1_max.y;
+    } break;
+    case DIR_WEST: {
+        return r2_max.x > r1->x ? r2_max.x - r1->x : r1->x - r2_max.x;
+    } break;
+    }
+
+    return INT_MAX;
+}
+
 struct window_node *view_find_window_node_in_direction(struct view *view, struct window_node *source, int direction)
 {
+    int window_count;
+    uint32_t *window_list = space_window_list(view->sid, &window_count, false);
+    if (!window_list) return NULL;
+
     int best_distance = INT_MAX;
+    int best_rank = INT_MAX;
     struct window_node *best_node = NULL;
-    CGPoint source_point = area_center(source->area);
+
+    CGPoint source_area_max = { source->area.x + source->area.w, source->area.y + source->area.h };
 
     struct window_node *target = window_node_find_first_leaf(view->root);
     while (target) {
-        CGPoint target_point = area_center(target->area);
-        int distance = euclidean_distance(source_point, target_point);
-        if (distance >= best_distance) goto next;
+        if (source == target) goto next;
 
-        switch (direction) {
-        case DIR_EAST: {
-            if (target->area.x >= source->area.x + source->area.w) {
+        CGPoint target_area_max = { target->area.x + target->area.w, target->area.y + target->area.h };
+        if (area_is_in_direction(&source->area, source_area_max, &target->area, target_area_max, direction)) {
+            int distance = area_distance_in_direction(&source->area, source_area_max, &target->area, target_area_max, direction);
+            int rank = window_manager_find_rank_of_window_in_list(target->window_order[0], window_list, window_count);
+            if ((distance < best_distance) || (distance == best_distance && rank < best_rank)) {
                 best_node = target;
                 best_distance = distance;
+                best_rank = rank;
             }
-        } break;
-        case DIR_SOUTH: {
-            if (target->area.y >= source->area.y + source->area.h) {
-                best_node = target;
-                best_distance = distance;
-            }
-        } break;
-        case DIR_WEST: {
-            if (target->area.x + target->area.w <= source->area.x) {
-                best_node = target;
-                best_distance = distance;
-            }
-        } break;
-        case DIR_NORTH: {
-            if (target->area.y + target->area.h <= source->area.y) {
-                best_node = target;
-                best_distance = distance;
-            }
-        } break;
         }
 
 next:
@@ -572,10 +597,10 @@ struct window_node *view_find_window_node(struct view *view, uint32_t window_id)
     return NULL;
 }
 
-void view_remove_window_node(struct view *view, struct window *window)
+struct window_node *view_remove_window_node(struct view *view, struct window *window)
 {
     struct window_node *node = view_find_window_node(view, window->id);
-    if (!node) return;
+    if (!node) return NULL;
 
     if (node->window_count > 1) {
         bool removed_entry = false;
@@ -597,7 +622,7 @@ void view_remove_window_node(struct view *view, struct window *window)
         assert(removed_order);
         --node->window_count;
 
-        return;
+        return NULL;
     }
 
     if (node == view->root) {
@@ -605,7 +630,7 @@ void view_remove_window_node(struct view *view, struct window *window)
         insert_feedback_destroy(node);
         memset(node, 0, sizeof(struct window_node));
         view_update(view);
-        return;
+        return NULL;
     }
 
     struct window_node *parent = node->parent;
@@ -651,7 +676,10 @@ void view_remove_window_node(struct view *view, struct window *window)
     if (g_space_manager.auto_balance) {
         window_node_equalize(view->root, SPLIT_X | SPLIT_Y);
         view_update(view);
+        return view->root;
     }
+
+    return parent;
 }
 
 void view_stack_window_node(struct view *view, struct window_node *node, struct window *window)
@@ -667,13 +695,14 @@ void view_stack_window_node(struct view *view, struct window_node *node, struct 
     ++node->window_count;
 }
 
-void view_add_window_node(struct view *view, struct window *window)
+struct window_node *view_add_window_node(struct view *view, struct window *window)
 {
     if (!window_node_is_occupied(view->root) &&
         window_node_is_leaf(view->root)) {
         view->root->window_list[0] = window->id;
         view->root->window_order[0] = window->id;
         view->root->window_count = 1;
+        return view->root;
     } else if (view->layout == VIEW_BSP) {
         struct window_node *leaf = NULL;
 
@@ -689,7 +718,7 @@ void view_add_window_node(struct view *view, struct window *window)
 
                 if (do_stack) {
                     view_stack_window_node(view, leaf, window);
-                    return;
+                    return leaf;
                 }
             }
         }
@@ -702,10 +731,16 @@ void view_add_window_node(struct view *view, struct window *window)
         if (g_space_manager.auto_balance) {
             window_node_equalize(view->root, SPLIT_X | SPLIT_Y);
             view_update(view);
+            return view->root;
         }
+
+        return leaf;
     } else if (view->layout == VIEW_STACK) {
         view_stack_window_node(view, view->root, window);
+        return view->root;
     }
+
+    return NULL;
 }
 
 uint32_t *view_find_window_list(struct view *view, int *window_count)

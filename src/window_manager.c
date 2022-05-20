@@ -283,7 +283,7 @@ void window_manager_set_window_opacity_enabled(struct window_manager *wm, bool e
 void window_manager_center_mouse(struct window_manager *wm, struct window *window)
 {
     if (window_rule_check_flag(window, WINDOW_RULE_MFF)) {
-        if (window_rule_check_flag(window, WINDOW_RULE_MFF_VALUE)) {
+        if (!window_rule_check_flag(window, WINDOW_RULE_MFF_VALUE)) {
             return;
         }
     } else {
@@ -618,6 +618,19 @@ void window_manager_purify_window(struct window_manager *wm, struct window *wind
             window_clear_flag(window, WINDOW_SHADOW);
         }
     }
+}
+
+int window_manager_find_rank_of_window_in_list(uint32_t wid, uint32_t *window_list, int window_count)
+{
+    for (int i = 0, rank = 0; i < window_count; ++i) {
+        if (window_list[i] == wid) {
+            return rank;
+        } else {
+            ++rank;
+        }
+    }
+
+    return INT_MAX;
 }
 
 struct window *window_manager_find_window_on_space_by_rank(struct window_manager *wm, uint64_t sid, int rank)

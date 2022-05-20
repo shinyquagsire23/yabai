@@ -143,6 +143,22 @@ static inline char *ts_string_escape(char *s)
     return result;
 }
 
+static inline CFNumberRef CFNUM32(int32_t num)
+{
+    return CFNumberCreate(NULL, kCFNumberSInt32Type, &num);
+}
+
+static inline void sls_window_disable_shadow(uint32_t id)
+{
+    CFNumberRef density = CFNUM32(0);
+    const void *keys[1] = { CFSTR("com.apple.WindowShadowDensity") };
+    const void *values[1] = { density };
+    CFDictionaryRef options = CFDictionaryCreate(NULL, keys, values, 1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    SLSWindowSetShadowProperties(id, options);
+    CFRelease(density);
+    CFRelease(options);
+}
+
 static inline CFArrayRef cfarray_of_cfnumbers(void *values, size_t size, int count, CFNumberType type)
 {
     CFNumberRef temp[count];
@@ -290,13 +306,6 @@ static inline bool psn_equals(ProcessSerialNumber *a, ProcessSerialNumber *b)
     return result == 1;
 }
 #pragma clang diagnostic pop
-
-static inline int euclidean_distance(CGPoint p1, CGPoint p2)
-{
-    int dx = p1.x - p2.x;
-    int dy = p1.y - p2.y;
-    return dx*dx + dy*dy;
-}
 
 static inline bool cgrect_contains_point(CGRect r, CGPoint p)
 {

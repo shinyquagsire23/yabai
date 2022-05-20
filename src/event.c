@@ -1104,15 +1104,14 @@ static EVENT_CALLBACK(EVENT_HANDLER_MOUSE_MOVED)
             CFRelease(window_list);
             window_manager_focus_window_without_raise(&window->application->psn, window->id);
             g_mouse_state.ffm_window_id = window->id;
-        } else {
+        } else if (g_window_manager.ffm_mode == FFM_AUTORAISE) {
 
             //
-            // NOTE(koekeishiya): If any window would be fully occluded by autoraising
-            // the window below the cursor we do not actually perform the focus change,
-            // as it is likely that the user is trying to reach for the smaller window
-            // that sits on top of the window we would otherwise raise.
+            // NOTE(koekeishiya): If any **floating** window would be fully occluded by
+            // autoraising the window below the cursor we do not actually perform the
+            // focus change, as it is likely that the user is trying to reach for the
+            // smaller window that sits on top of the window we would otherwise raise.
             //
-
 
             bool occludes_window = false;
 
@@ -1125,7 +1124,7 @@ static EVENT_CALLBACK(EVENT_HANDLER_MOUSE_MOVED)
                     if (wid == window->id) break;
 
                     struct window *sub_window = window_manager_find_window(&g_window_manager, wid);
-                    if (!sub_window) continue;
+                    if (!sub_window || !window_check_flag(sub_window, WINDOW_FLOAT)) continue;
 
                     if (CGRectContainsRect(window->frame, sub_window->frame)) {
                         occludes_window = true;
