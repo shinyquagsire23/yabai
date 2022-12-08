@@ -1152,14 +1152,14 @@ static EVENT_CALLBACK(EVENT_HANDLER_MOUSE_DRAGGED)
 
         //direction |= HANDLE_DONT_UPDATE;
 
-        window_manager_resize_window_relative(&g_window_manager, g_mouse_state.window, direction, dx, dy);
+        window_manager_resize_window_relative(&g_window_manager, g_mouse_state.window, direction, dx, dy, false);
 
         if (dt >= rate) {
             g_mouse_state.last_moved_time = event_time;
         }
         else if (!window_check_flag(g_mouse_state.window, WINDOW_FLOAT))
         {
-            window_manager_resize_window_relative_internal(g_mouse_state.window, g_mouse_state.window->frame, direction, dx, dy);
+            window_manager_resize_window_relative_internal(g_mouse_state.window, g_mouse_state.window->frame, direction, dx, dy, false);
         }
         g_mouse_state.resize_down_location = point;
 
