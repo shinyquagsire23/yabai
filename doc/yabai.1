@@ -2,12 +2,12 @@
 .\"     Title: yabai
 .\"    Author: [see the "AUTHOR(S)" section]
 .\" Generator: Asciidoctor 2.0.16
-.\"      Date: 2021-11-18
+.\"      Date: 2022-10-20
 .\"    Manual: Yabai Manual
 .\"    Source: Yabai
 .\"  Language: English
 .\"
-.TH "YABAI" "1" "2021-11-18" "Yabai" "Yabai Manual"
+.TH "YABAI" "1" "2022-10-20" "Yabai" "Yabai Manual"
 .ie \n(.g .ds Aq \(aq
 .el       .ds Aq '
 .ss \n[.ss] 0
@@ -32,7 +32,7 @@
 yabai
 .SH "SYNOPSIS"
 .sp
-\fByabai\fP [\fB\-v\fP,\fB\-\-version\fP|\fB\-V\fP,\fB\-\-verbose\fP|\fB\-m\fP,\fB\-\-message\fP \fImsg\fP|\fB\-c\fP,\fB\-\-config\fP \fIconfig_file\fP|\fB\-\-install\-sa\fP|\fB\-\-uninstall\-sa\fP|\fB\-\-check\-sa\fP|\fB\-\-load\-sa\fP]
+\fByabai\fP [\fB\-v\fP,\fB\-\-version\fP|\fB\-V\fP,\fB\-\-verbose\fP|\fB\-m\fP,\fB\-\-message\fP \fImsg\fP|\fB\-c\fP,\fB\-\-config\fP \fIconfig_file\fP|\fB\-\-uninstall\-sa\fP|\fB\-\-load\-sa\fP]
 .SH "DESCRIPTION"
 .sp
 \fByabai\fP is a tiling window manager for macOS based on binary space partitioning.
@@ -58,28 +58,24 @@ Send message to a running instance of yabai.
 Use the specified configuration file.
 .RE
 .sp
-\fB\-\-install\-sa\fP
-.RS 4
-Install scripting\-addition. Must be run as root.
-.br
-Path is /System/Library/ScriptingAdditions on macOS High Sierra, and /Library/ScriptingAdditions on Mojave and newer.
-.RE
-.sp
 \fB\-\-uninstall\-sa\fP
 .RS 4
-Uninstall scripting\-addition. Must be run as root.
+Uninstall the scripting\-addition. Must be run as root.
 .br
-Path is /System/Library/ScriptingAdditions on macOS High Sierra, and /Library/ScriptingAdditions on Mojave and newer.
-.RE
-.sp
-\fB\-\-check\-sa\fP
-.RS 4
-Returns a zero exit\-code if the latest version of the scripting\-addition is installed.
+Path is /Library/ScriptingAdditions/yabai.osax.
+.br
+System Integrity Protection must be partially disabled.
 .RE
 .sp
 \fB\-\-load\-sa\fP
 .RS 4
-Loads the scripting\-addition into Dock.app.
+Load the scripting\-addition into Dock.app.
+.br
+Installs and updates the scripting\-addition when necessary.
+.br
+Path is /Library/ScriptingAdditions/yabai.osax.
+.br
+System Integrity Protection must be partially disabled.
 .RE
 .SH "DEFINITIONS"
 .sp
@@ -105,7 +101,7 @@ DIR_SEL     := north | east | south | west
 
 STACK_SEL   := stack.prev | stack.next | stack.first | stack.last | stack.recent
 
-WINDOW_SEL  := prev | next | first | last | recent | mouse | largest | smallest | STACK_SEL | DIR_SEL | <window id>
+WINDOW_SEL  := prev | next | first | last | recent | mouse | largest | smallest | sibling | first_nephew | second_nephew | uncle | first_cousin | second_cousin | STACK_SEL | DIR_SEL | <window id>
 
 DISPLAY_SEL := prev | next | first | last | recent | mouse | DIR_SEL | <arrangement index (1\-based)>
 
@@ -173,31 +169,52 @@ Specify whether managed windows should become the first or second leaf\-node.
 \fBwindow_topmost\fP [\fI<BOOL_SEL>\fP]
 .RS 4
 Make floating windows stay on top.
+.br
+System Integrity Protection must be partially disabled.
 .RE
 .sp
 \fBwindow_shadow\fP [\fI<BOOL_SEL>|float\fP]
 .RS 4
 Draw shadow for windows.
+.br
+System Integrity Protection must be partially disabled.
 .RE
 .sp
 \fBwindow_opacity\fP [\fI<BOOL_SEL>\fP]
 .RS 4
 Enable opacity for windows.
+.br
+System Integrity Protection must be partially disabled.
 .RE
 .sp
 \fBwindow_opacity_duration\fP [\fI<floating point number>\fP]
 .RS 4
 Duration of transition between active / normal opacity.
+.br
+System Integrity Protection must be partially disabled.
+.RE
+.sp
+\fBwindow_animation_duration\fP [\fI<floating point number>\fP]
+.RS 4
+Duration of window frame animation. If 0.0, the change in dimension is not animated.
+.br
+Requires Screen Recording permissions.
+.br
+System Integrity Protection must be partially disabled.
 .RE
 .sp
 \fBactive_window_opacity\fP [\fI<FLOAT_SEL>\fP]
 .RS 4
 Opacity of the focused window.
+.br
+System Integrity Protection must be partially disabled.
 .RE
 .sp
 \fBnormal_window_opacity\fP [\fI<FLOAT_SEL>\fP]
 .RS 4
 Opacity of an unfocused window.
+.br
+System Integrity Protection must be partially disabled.
 .RE
 .sp
 \fBwindow_border\fP [\fI<BOOL_SEL>\fP]
@@ -205,9 +222,26 @@ Opacity of an unfocused window.
 Draw border for windows.
 .RE
 .sp
+\fBwindow_border_hidpi\fP [\fI<BOOL_SEL>\fP]
+.RS 4
+Draw border in high resolution mode; for High Dots Per Inch ("Retina") displays.
+.br
+HiDPI uses significantly more memory.
+.RE
+.sp
+\fBwindow_border_blur\fP [\fI<BOOL_SEL>\fP]
+.RS 4
+Blur border allowing it to act as a backdrop for transparent windows.
+.RE
+.sp
 \fBwindow_border_width\fP [\fI<even integer number>\fP]
 .RS 4
-Width of window borders. If the given width is an odd number, it will be incremented by 1.
+Width of window border. If the given width is an odd number, it will be incremented by 1.
+.RE
+.sp
+\fBwindow_border_radius\fP [\fI<integer number>\fP]
+.RS 4
+Radius of window border.
 .RE
 .sp
 \fBactive_window_border_color\fP [\fI0xAARRGGBB\fP]
@@ -227,7 +261,18 @@ Color of the \fBwindow \-\-insert\fP message selection.
 .sp
 \fBsplit_ratio\fP [\fI<FLOAT_SEL>\fP]
 .RS 4
-Default split ratio.
+Specify the size distribution when a window is split.
+.RE
+.sp
+\fBsplit_type\fP [\fIvertical|horizontal|auto\fP]
+.RS 4
+Specify how a window should be split.
+.br
+\fIvertical\fP: The window is split along the y\-axis.
+.br
+\fIhorizontal\fP: The window is split along the x\-axis.
+.br
+\fIauto\fP: The axis is determined based on width/height ratio.
 .RE
 .sp
 \fBauto_balance\fP [\fI<BOOL_SEL>\fP]
@@ -304,16 +349,22 @@ yabai \-m space [\fI<SPACE_SEL>\fP] \fI<COMMAND>\fP
 \fB\-\-focus\fP \fI<SPACE_SEL>\fP
 .RS 4
 Focus the given space.
+.br
+System Integrity Protection must be partially disabled.
 .RE
 .sp
 \fB\-\-create\fP  [\fI<SPACE_SEL>\fP]
 .RS 4
 Create a new space on the display of the given space. If none specified, use the selected space instead.
+.br
+System Integrity Protection must be partially disabled.
 .RE
 .sp
 \fB\-\-destroy\fP [\fI<SPACE_SEL>\fP]
 .RS 4
 Remove the given space. If none specified, use the selected space instead.
+.br
+System Integrity Protection must be partially disabled.
 .RE
 .sp
 \fB\-\-move\fP \fI<SPACE_SEL>\fP
@@ -321,6 +372,8 @@ Remove the given space. If none specified, use the selected space instead.
 Move position of the selected space to the position of the given space.
 .br
 The selected space and given space must both belong to the same display.
+.br
+System Integrity Protection must be partially disabled.
 .RE
 .sp
 \fB\-\-swap\fP \fI<SPACE_SEL>\fP
@@ -328,11 +381,15 @@ The selected space and given space must both belong to the same display.
 Swap the selected space with the given space.
 .br
 The selected space and given space must both belong to the same display.
+.br
+System Integrity Protection must be partially disabled.
 .RE
 .sp
 \fB\-\-display\fP \fI<DISPLAY_SEL>\fP
 .RS 4
 Send the selected space to the given display.
+.br
+System Integrity Protection must be partially disabled.
 .RE
 .sp
 \fB\-\-balance\fP [\fIx\-axis|y\-axis\fP]
@@ -434,11 +491,15 @@ If type is \fIrel\fP the split ratio of the selected window is changed by \fIdr\
 \fB\-\-toggle\fP \fIfloat|sticky|topmost|pip|shadow|border|split|zoom\-parent|zoom\-fullscreen|native\-fullscreen|expose\fP
 .RS 4
 Toggle the given property of the selected window.
+.br
+The following properties require System Integrity Protection to be partially disabled: sticky, topmost, pip, shadow.
 .RE
 .sp
 \fB\-\-layer\fP \fI<LAYER>\fP
 .RS 4
 Set the stacking layer of the selected window.
+.br
+System Integrity Protection must be partially disabled.
 .RE
 .sp
 \fB\-\-opacity\fP \fI<floating point number>\fP
@@ -446,6 +507,8 @@ Set the stacking layer of the selected window.
 Set the opacity of the selected window. The window will no longer be eligible for automatic change in opacity upon focus change.
 .br
 Specify the value \fI0.0\fP to reset back to full opacity OR have it be automatically managed through focus changes.
+.br
+System Integrity Protection must be partially disabled.
 .RE
 .sp
 \fB\-\-display\fP \fI<DISPLAY_SEL>\fP
@@ -579,6 +642,7 @@ WINDOW
     "level": number,
     "opacity": number,
     "split\-type": string,
+    "split\-child": string,
     "stack\-index": number,
     "can\-move": bool,
     "can\-resize": bool,
@@ -604,6 +668,8 @@ WINDOW
 All registered rules that match the given filter will apply to a window in the order they were added.
 .br
 If multiple rules specify a value for the same argument, the latter rule will override that value as it was applied last.
+.br
+The following properties require System Integrity Protection to be partially disabled: sticky, layer, opacity.
 .SS "General Syntax"
 .sp
 yabai \-m rule \fI<COMMAND>\fP
@@ -640,6 +706,18 @@ Name of application. If \fI!\fP is present, invert the match.
 Title of window. If \fI!\fP is present, invert the match.
 .RE
 .sp
+\fBrole[!]=\fI<REGEX>\fP\fP
+.RS 4
+.URL "https://developer.apple.com/documentation/applicationservices/carbon_accessibility/roles?language=objc" "Accessibility role of window" "."
+If \fI!\fP is present, invert the match.
+.RE
+.sp
+\fBsubrole[!]=\fI<REGEX>\fP\fP
+.RS 4
+.URL "https://developer.apple.com/documentation/applicationservices/carbon_accessibility/subroles?language=objc" "Accessibility subrole of window" "."
+If \fI!\fP is present, invert the match.
+.RE
+.sp
 \fBdisplay=\fI[^]<DISPLAY_SEL>\fP\fP
 .RS 4
 Send window to display. If \fI^\fP is present, follow focus.
@@ -653,6 +731,8 @@ Send window to space. If \fI^\fP is present, follow focus.
 \fBmanage=\fI<BOOL_SEL>\fP\fP
 .RS 4
 Window should be managed (tile vs float).
+.br
+Most windows will be managed automatically, so this should mainly be used to make a window float.
 .RE
 .sp
 \fBsticky=\fI<BOOL_SEL>\fP\fP
@@ -699,6 +779,8 @@ Set window frame based on a self\-defined grid.
     "label": string,
     "app": string,
     "title": string,
+    "role": string,
+    "subrole": string,
     "display": number,
     "space": number,
     "follow_space": bool,

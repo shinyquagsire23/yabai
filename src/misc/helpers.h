@@ -22,6 +22,34 @@ static const char *layer_str[] =
     [LAYER_ABOVE] = "above"
 };
 
+static inline float ease_out_cubic(float t)
+{
+    return 1.0f - powf(1.0f - t, 3.0f);
+}
+
+#define ANIMATE(animation_connection, animation_duration, easing_function, code_block) \
+{                                                                                      \
+    int frame_duration = 4;                                                            \
+    int total_duration = (int)(animation_duration * 1000.0f);                          \
+    int frame_count = (int)(((float) total_duration / (float) frame_duration) + 1.0f); \
+                                                                                       \
+    for (int frame_index = 1; frame_index <= frame_count; ++frame_index) {             \
+        float t = (float) frame_index / (float) frame_count;                           \
+        if (t < 0.0f) t = 0.0f;                                                        \
+        if (t > 1.0f) t = 1.0f;                                                        \
+                                                                                       \
+        float mt = easing_function(t);                                                 \
+        CFTypeRef transaction = SLSTransactionCreate(animation_connection);            \
+                                                                                       \
+        code_block                                                                     \
+                                                                                       \
+        SLSTransactionCommit(transaction, 0);                                          \
+        CFRelease(transaction);                                                        \
+                                                                                       \
+        usleep(frame_duration*1000);                                                   \
+    }                                                                                  \
+}
+
 static inline bool socket_open(int *sockfd)
 {
     *sockfd = socket(AF_UNIX, SOCK_STREAM, 0);
@@ -306,6 +334,22 @@ static inline bool psn_equals(ProcessSerialNumber *a, ProcessSerialNumber *b)
     return result == 1;
 }
 #pragma clang diagnostic pop
+
+static inline float cgrect_clamp_x_radius(CGRect frame, float radius)
+{
+    if (radius * 2 > CGRectGetWidth(frame)) {
+        radius = CGRectGetWidth(frame) / 2;
+    }
+    return radius;
+}
+
+static inline float cgrect_clamp_y_radius(CGRect frame, float radius)
+{
+    if (radius * 2 > CGRectGetHeight(frame)) {
+        radius = CGRectGetHeight(frame) / 2;
+    }
+    return radius;
+}
 
 static inline bool cgrect_contains_point(CGRect r, CGPoint p)
 {

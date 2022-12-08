@@ -67,7 +67,7 @@ bool space_manager_query_spaces_for_display(FILE *rsp, uint32_t did)
 
 bool space_manager_query_spaces_for_displays(FILE *rsp)
 {
-    uint32_t display_count;
+    int display_count;
     uint32_t *display_list = display_manager_active_display_list(&display_count);
     if (!display_list) return false;
 
@@ -123,14 +123,6 @@ void space_manager_mark_view_invalid(struct space_manager *sm,  uint64_t sid)
     if (view->layout == VIEW_FLOAT) return;
 
     view->is_valid = false;
-}
-
-void space_manager_mark_view_dirty(struct space_manager *sm,  uint64_t sid)
-{
-    struct view *view = space_manager_find_view(sm, sid);
-    if (view->layout == VIEW_FLOAT) return;
-
-    view->is_dirty = true;
 }
 
 void space_manager_untile_window(struct space_manager *sm, struct view *view, struct window *window)
@@ -395,27 +387,16 @@ bool space_manager_balance_space(struct space_manager *sm, uint64_t sid, uint32_
 
 struct view *space_manager_tile_window_on_space_with_insertion_point(struct space_manager *sm, struct window *window, uint64_t sid, uint32_t insertion_point)
 {
-    uint32_t prev_insertion_point;
-
     struct view *view = space_manager_find_view(sm, sid);
     if (view->layout == VIEW_FLOAT) return view;
 
-    if (view->layout == VIEW_BSP && insertion_point) {
-        prev_insertion_point = view->insertion_point;
-        view->insertion_point = insertion_point;
-    }
-
-    struct window_node *node = view_add_window_node(view, window);
+    struct window_node *node = view_add_window_node_with_insertion_point(view, window, insertion_point);
     assert(node);
 
     if (space_is_visible(view->sid)) {
         window_node_flush(node);
     } else {
         view->is_dirty = true;
-    }
-
-    if (view->layout == VIEW_BSP && insertion_point) {
-        view->insertion_point = prev_insertion_point;
     }
 
     return view;
@@ -615,7 +596,10 @@ uint64_t space_manager_active_space(void)
 
 void space_manager_move_window_to_space(uint64_t sid, struct window *window)
 {
-    CFArrayRef window_list_ref = cfarray_of_cfnumbers(&window->id, sizeof(uint32_t), 1, kCFNumberSInt32Type);
+    int window_count = window->border.id ? 2 : 1;
+    uint32_t window_list[2] = { window->id, window->border.id };
+
+    CFArrayRef window_list_ref = cfarray_of_cfnumbers(window_list, sizeof(uint32_t), window_count, kCFNumberSInt32Type);
     SLSMoveWindowsToManagedSpace(g_connection, window_list_ref, sid);
     CFRelease(window_list_ref);
 }
@@ -637,19 +621,7 @@ enum space_op_error space_manager_focus_space(uint64_t sid)
 
     if (scripting_addition_focus_space(sid)) {
         if (focus_display) {
-            while (true) {
-
-                /*
-                 * NOTE(koekeishiya): On macOS Monterey it appears that the API we use take some time to update
-                 * before they actually reflect the system state. Because of that we need to spin- lock here
-                 * until the system has caught up with the space change before we can proceed.
-                 * */
-
-                uint64_t tmp = display_space_id(new_did);
-                if (tmp == sid) break;
-            }
-
-            display_manager_focus_display(new_did);
+            display_manager_focus_display(new_did, sid);
         }
     } else {
         return SPACE_OP_ERROR_SCRIPTING_ADDITION;
@@ -903,7 +875,7 @@ void space_manager_mark_spaces_invalid_for_display(struct space_manager *sm, uin
 
 void space_manager_mark_spaces_invalid(struct space_manager *sm)
 {
-    uint32_t display_count = 0;
+    int display_count;
     uint32_t *display_list = display_manager_active_display_list(&display_count);
     if (!display_list) return;
 
@@ -914,16 +886,14 @@ void space_manager_mark_spaces_invalid(struct space_manager *sm)
 
 bool space_manager_refresh_application_windows(struct space_manager *sm)
 {
+    int refresh_count = buf_len(g_window_manager.applications_to_refresh);
+    if (!refresh_count) return false;
+
     int window_count = g_window_manager.window.count;
-    for (int i = 0; i < g_window_manager.application.capacity; ++i) {
-        struct bucket *bucket = g_window_manager.application.buckets[i];
-        while (bucket) {
-            if (bucket->value) {
-                struct application *application = bucket->value;
-                window_manager_add_application_windows(sm, &g_window_manager, application);
-            }
-            bucket = bucket->next;
-        }
+    for (int i = 0; i < refresh_count; ++i) {
+        struct application *application = g_window_manager.applications_to_refresh[i];
+        debug("%s: %s has windows that are not yet resolved\n", __FUNCTION__, application->name);
+        window_manager_add_existing_application_windows(sm, &g_window_manager, application, i);
     }
 
     return window_count != g_window_manager.window.count;
@@ -954,7 +924,7 @@ void space_manager_handle_display_add(struct space_manager *sm, uint32_t did)
 
     for (int i = 0; i < space_count; ++i) {
         uint64_t sid = space_list[i];
-        CFStringRef uuid = space_uuid(sid);
+        CFStringRef uuid = SLSSpaceCopyName(g_connection, sid);
         if (!uuid) continue;
 
         for (int j = 0; j < list_count; ++j) {
@@ -993,12 +963,13 @@ void space_manager_init(struct space_manager *sm)
     sm->layout = VIEW_FLOAT;
     sm->split_ratio = 0.5f;
     sm->auto_balance = false;
+    sm->split_type = SPLIT_AUTO;
     sm->window_placement = CHILD_SECOND;
     sm->labels = NULL;
 
     table_init(&sm->view, 23, hash_view, compare_view);
 
-    uint32_t display_count;
+    int display_count;
     uint32_t *display_list = display_manager_active_display_list(&display_count);
     if (!display_list) return;
 

@@ -1,5 +1,4 @@
 #define SA_SOCKET_PATH_FMT      "/tmp/yabai-sa_%s.socket"
-
 #define SOCKET_PATH_FMT         "/tmp/yabai_%s.socket"
 #define LCFILE_PATH_FMT         "/tmp/yabai_%s.lock"
 
@@ -13,12 +12,10 @@
 #define CONFIG_OPT_LONG         "--config"
 #define CONFIG_OPT_SHRT         "-c"
 
-#define SCRPT_ADD_INSTALL_OPT   "--install-sa"
 #define SCRPT_ADD_UNINSTALL_OPT "--uninstall-sa"
-#define SCRPT_ADD_CHECK_OPT     "--check-sa"
 #define SCRPT_ADD_LOAD_OPT      "--load-sa"
 
-#define MAJOR  4
+#define MAJOR  5
 #define MINOR  0
 #define PATCH  1
 
@@ -62,9 +59,10 @@ static int client_send_message(int argc, char **argv)
         message_length += argl[i];
     }
 
-    char *message = malloc(message_length);
-    char *temp = message;
+    char *message = malloc(sizeof(int)+message_length);
+    char *temp = sizeof(int)+message;
 
+    memcpy(message, &message_length, sizeof(int));
     for (int i = 1; i < argc; ++i) {
         memcpy(temp, argv[i], argl[i]);
         temp += argl[i];
@@ -84,7 +82,7 @@ static int client_send_message(int argc, char **argv)
         error("yabai-msg: failed to connect to socket..\n");
     }
 
-    if (send(sockfd, message, message_length, 0) == -1) {
+    if (send(sockfd, message, sizeof(int)+message_length, 0) == -1) {
         error("yabai-msg: failed to send data..\n");
     }
 
@@ -238,16 +236,8 @@ static void parse_arguments(int argc, char **argv)
         exit(client_send_message(argc-1, argv+1));
     }
 
-    if (string_equals(argv[1], SCRPT_ADD_INSTALL_OPT)) {
-        exit(scripting_addition_install());
-    }
-
     if (string_equals(argv[1], SCRPT_ADD_UNINSTALL_OPT)) {
         exit(scripting_addition_uninstall());
-    }
-
-    if (string_equals(argv[1], SCRPT_ADD_CHECK_OPT)) {
-        exit(scripting_addition_check());
     }
 
     if (string_equals(argv[1], SCRPT_ADD_LOAD_OPT)) {
@@ -296,11 +286,11 @@ int main(int argc, char **argv)
         error("yabai: could not initialize event_loop! abort..\n");
     }
 
-    if (!memory_pool_init(&g_signal_storage, KILOBYTES(32))) {
+    if (!memory_pool_init(&g_signal_storage, KILOBYTES(128))) {
         error("yabai: could not allocate memory for event_signal! abort..\n");
     }
 
-    if (!ts_init(MEGABYTES(1))) {
+    if (!ts_init(MEGABYTES(4))) {
         error("yabai: could not allocate temporary storage! abort..\n");
     }
 
@@ -318,7 +308,7 @@ int main(int argc, char **argv)
     workspace_event_handler_begin(&g_workspace_context);
     event_tap_begin(&g_event_tap, EVENT_MASK_MOUSE, mouse_handler);
 
-    if (workspace_is_macos_monterey()) {
+    if (workspace_is_macos_monterey() || workspace_is_macos_ventura()) {
         mission_control_observe();
     } else {
         SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 1204, NULL);
@@ -332,14 +322,6 @@ int main(int argc, char **argv)
 
     if (!message_loop_begin(g_socket_file)) {
         error("yabai: could not initialize message_loop! abort..\n");
-    }
-
-    if (!workspace_is_macos_monterey() && !workspace_is_macos_bigsur()) {
-        if (scripting_addition_is_installed()) {
-            scripting_addition_load();
-        } else {
-            notify("scripting-addition", "payload is not installed, some features will not work!");
-        }
     }
 
     exec_config_file();

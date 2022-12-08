@@ -11,6 +11,37 @@ struct area
     float h;
 };
 
+struct window_capture
+{
+    struct window *window;
+    float x, y, w, h;
+};
+
+struct window_proxy
+{
+    uint32_t id;
+    CGContextRef context;
+    float tx, ty, tw, th;
+    CGRect frame;
+    int level;
+    CFArrayRef image;
+};
+
+struct window_animation
+{
+    uint32_t wid;
+    float x, y, w, h;
+    struct window_proxy proxy;
+    volatile bool skip;
+};
+
+struct window_animation_context
+{
+    int animation_connection;
+    float animation_duration;
+    struct window_animation *animation_list;
+};
+
 struct equalize_node
 {
     int y_count;
@@ -35,14 +66,16 @@ enum window_node_split
 {
     SPLIT_NONE,
     SPLIT_Y,
-    SPLIT_X
+    SPLIT_X,
+    SPLIT_AUTO
 };
 
 static const char *window_node_split_str[] =
 {
     "none",
     "vertical",
-    "horizontal"
+    "horizontal",
+    "auto"
 };
 
 struct feedback_window
@@ -122,10 +155,12 @@ struct window_node *window_node_find_first_leaf(struct window_node *root);
 struct window_node *window_node_find_last_leaf(struct window_node *root);
 struct window_node *window_node_find_prev_leaf(struct window_node *node);
 struct window_node *window_node_find_next_leaf(struct window_node *node);
+void window_node_capture_windows(struct window_node *node, struct window_capture **window_list);
 
 struct window_node *view_find_window_node_in_direction(struct view *view, struct window_node *source, int direction);
 struct window_node *view_find_window_node(struct view *view, uint32_t window_id);
 void view_stack_window_node(struct view *view, struct window_node *node, struct window *window);
+struct window_node *view_add_window_node_with_insertion_point(struct view *view, struct window *window, uint32_t insertion_point);
 struct window_node *view_add_window_node(struct view *view, struct window *window);
 struct window_node *view_remove_window_node(struct view *view, struct window *window);
 uint32_t *view_find_window_list(struct view *view, int *window_count);

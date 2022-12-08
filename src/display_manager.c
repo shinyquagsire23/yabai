@@ -4,7 +4,7 @@ extern int g_connection;
 
 bool display_manager_query_displays(FILE *rsp)
 {
-    uint32_t count = 0;
+    int count;
     uint32_t *display_list = display_manager_active_display_list(&count);
     if (!display_list) return false;
 
@@ -146,21 +146,21 @@ uint32_t display_manager_last_display_id(void)
 
 uint32_t display_manager_find_closest_display_in_direction(uint32_t source_did, int direction)
 {
-    uint32_t display_count;
+    int display_count;
     uint32_t *display_list = display_manager_active_display_list(&display_count);
     if (!display_list) return 0;
 
     uint32_t best_did = 0;
     int best_distance = INT_MAX;
 
-    struct area source_area = area_from_cgrect(display_bounds(source_did));
+    struct area source_area = area_from_cgrect(CGDisplayBounds(source_did));
     CGPoint source_area_max = { source_area.x + source_area.w, source_area.y + source_area.h };
 
     for (int i = 0; i < display_count; ++i) {
         uint32_t did = display_list[i];
         if (did == source_did) continue;
 
-        struct area target_area = area_from_cgrect(display_bounds(did));
+        struct area target_area = area_from_cgrect(CGDisplayBounds(did));
         CGPoint target_area_max = { target_area.x + target_area.w, target_area.y + target_area.h };
 
         if (area_is_in_direction(&source_area, source_area_max, &target_area, target_area_max, direction)) {
@@ -253,18 +253,18 @@ bool display_manager_display_is_animating(uint32_t did)
     return result;
 }
 
-uint32_t display_manager_active_display_count(void)
+int display_manager_active_display_count(void)
 {
     uint32_t count;
     CGGetActiveDisplayList(0, NULL, &count);
-    return count;
+    return (int)count;
 }
 
-uint32_t *display_manager_active_display_list(uint32_t *count)
+uint32_t *display_manager_active_display_list(int *count)
 {
     int display_count = display_manager_active_display_count();
     uint32_t *result = ts_alloc_aligned(sizeof(uint32_t), display_count);
-    CGGetActiveDisplayList(display_count, result, count);
+    CGGetActiveDisplayList(display_count, result, (uint32_t*)count);
     return result;
 }
 
@@ -317,9 +317,9 @@ out:;
 }
 #pragma clang diagnostic pop
 
-void display_manager_focus_display(uint32_t did)
+void display_manager_focus_display(uint32_t did, uint64_t sid)
 {
-    struct window *window = window_manager_find_window_on_space_by_rank(&g_window_manager, display_space_id(did), 1);
+    struct window *window = window_manager_find_window_on_space_by_rank_filtering_window(&g_window_manager, sid, 1, 0);
     if (window) {
         window_manager_focus_window_with_raise(&window->application->psn, window->id, window->ref);
     } else {

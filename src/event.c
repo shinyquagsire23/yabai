@@ -89,11 +89,10 @@ static EVENT_CALLBACK(EVENT_HANDLER_APPLICATION_LAUNCHED)
 
     debug("%s: %s (%d)\n", __FUNCTION__, process->name, process->pid);
     window_manager_add_application(&g_window_manager, application);
-    window_manager_add_application_windows(&g_space_manager, &g_window_manager, application);
     event_signal_push(SIGNAL_APPLICATION_LAUNCHED, application);
 
     int window_count;
-    struct window **window_list = window_manager_find_application_windows(&g_window_manager, application, &window_count);
+    struct window **window_list = window_manager_add_application_windows(&g_space_manager, &g_window_manager, application, &window_count);
     uint32_t prev_window_id = g_window_manager.focused_window_id;
 
     uint64_t sid;
@@ -107,24 +106,56 @@ static EVENT_CALLBACK(EVENT_HANDLER_APPLICATION_LAUNCHED)
         }
     }
 
+    int view_count = 0;
+    struct view **view_list = ts_alloc_aligned(sizeof(struct view *), window_count);
+
     for (int i = 0; i < window_count; ++i) {
         struct window *window = window_list[i];
-        if (window_check_flag(window, WINDOW_MINIMIZE)) goto next;
 
-        struct view *view = window_manager_find_managed_window(&g_window_manager, window);
-        if (view) goto next;
-
-        if (window_manager_should_manage_window(window)) {
+        if (window_manager_should_manage_window(window) && !window_manager_find_managed_window(&g_window_manager, window)) {
             if (default_origin) sid = window_space(window);
 
-            struct view *view = space_manager_tile_window_on_space_with_insertion_point(&g_space_manager, window, sid, prev_window_id);
+            struct view *view = space_manager_find_view(&g_space_manager, sid);
+            if (view->layout == VIEW_FLOAT) goto next;
+
+            //
+            // @cleanup
+            //
+            // :AXBatching
+            //
+            // NOTE(koekeishiya): Batch all operations and mark the view as dirty so that we can perform a single flush,
+            // making sure that each window is only moved and resized a single time, when the final layout has been computed.
+            // This is necessary to make sure that we do not call the AX API for each modification to the tree.
+            //
+
+            view_add_window_node_with_insertion_point(view, window, prev_window_id);
             window_manager_add_managed_window(&g_window_manager, window, view);
+
+            view->is_dirty = true;
+            view_list[view_count++] = view;
 
             prev_window_id = window->id;
         }
 
 next:
         event_signal_push(SIGNAL_WINDOW_CREATED, window);
+    }
+
+    //
+    // @cleanup
+    //
+    // :AXBatching
+    //
+    // NOTE(koekeishiya): Flush previously batched operations if the view is marked as dirty.
+    // This is necessary to make sure that we do not call the AX API for each modification to the tree.
+    //
+
+    for (int i = 0; i < view_count; ++i) {
+        struct view *view = view_list[i];
+        if (!space_is_visible(view->sid)) continue;
+        if (!view_is_dirty(view))         continue;
+
+        view_flush(view);
     }
 
     return EVENT_SUCCESS;
@@ -147,13 +178,31 @@ static EVENT_CALLBACK(EVENT_HANDLER_APPLICATION_TERMINATED)
     int window_count;
     struct window **window_list = window_manager_find_application_windows(&g_window_manager, application, &window_count);
 
+    int view_count = 0;
+    struct view **view_list = ts_alloc_aligned(sizeof(struct view *), window_count);
+
     for (int i = 0; i < window_count; ++i) {
         struct window *window = window_list[i];
+        border_destroy(window);
 
         struct view *view = window_manager_find_managed_window(&g_window_manager, window);
         if (view) {
-            space_manager_untile_window(&g_space_manager, view, window);
+
+            //
+            // @cleanup
+            //
+            // :AXBatching
+            //
+            // NOTE(koekeishiya): Batch all operations and mark the view as dirty so that we can perform a single flush,
+            // making sure that each window is only moved and resized a single time, when the final layout has been computed.
+            // This is necessary to make sure that we do not call the AX API for each modification to the tree.
+            //
+
+            view_remove_window_node(view, window);
             window_manager_remove_managed_window(&g_window_manager, window->id);
+
+            view->is_dirty = true;
+            view_list[view_count++] = view;
         }
 
         if (g_mouse_state.window == window) g_mouse_state.window = NULL;
@@ -166,6 +215,23 @@ static EVENT_CALLBACK(EVENT_HANDLER_APPLICATION_TERMINATED)
 
     application_unobserve(application);
     application_destroy(application);
+
+    //
+    // @cleanup
+    //
+    // :AXBatching
+    //
+    // NOTE(koekeishiya): Flush previously batched operations if the view is marked as dirty.
+    // This is necessary to make sure that we do not call the AX API for each modification to the tree.
+    //
+
+    for (int i = 0; i < view_count; ++i) {
+        struct view *view = view_list[i];
+        if (!space_is_visible(view->sid)) continue;
+        if (!view_is_dirty(view))         continue;
+
+        view_flush(view);
+    }
 
 out:
     process_destroy(process);
@@ -266,20 +332,52 @@ static EVENT_CALLBACK(EVENT_HANDLER_APPLICATION_VISIBLE)
     struct window **window_list = window_manager_find_application_windows(&g_window_manager, application, &window_count);
     uint32_t prev_window_id = g_window_manager.last_window_id;
 
+    int view_count = 0;
+    struct view **view_list = ts_alloc_aligned(sizeof(struct view *), window_count);
+
     for (int i = 0; i < window_count; ++i) {
         struct window *window = window_list[i];
-        if (window_check_flag(window, WINDOW_MINIMIZE)) continue;
-
         border_show(window);
 
-        struct view *view = window_manager_find_managed_window(&g_window_manager, window);
-        if (view) continue;
+        if (window_manager_should_manage_window(window) && !window_manager_find_managed_window(&g_window_manager, window)) {
+            struct view *view = space_manager_find_view(&g_space_manager, window_space(window));
+            if (view->layout == VIEW_FLOAT) continue;
 
-        if (window_manager_should_manage_window(window)) {
-            struct view *view = space_manager_tile_window_on_space_with_insertion_point(&g_space_manager, window, window_space(window), prev_window_id);
+            //
+            // @cleanup
+            //
+            // :AXBatching
+            //
+            // NOTE(koekeishiya): Batch all operations and mark the view as dirty so that we can perform a single flush,
+            // making sure that each window is only moved and resized a single time, when the final layout has been computed.
+            // This is necessary to make sure that we do not call the AX API for each modification to the tree.
+            //
+
+            view_add_window_node_with_insertion_point(view, window, prev_window_id);
             window_manager_add_managed_window(&g_window_manager, window, view);
+
+            view->is_dirty = true;
+            view_list[view_count++] = view;
+
             prev_window_id = window->id;
         }
+    }
+
+    //
+    // @cleanup
+    //
+    // :AXBatching
+    //
+    // NOTE(koekeishiya): Flush previously batched operations if the view is marked as dirty.
+    // This is necessary to make sure that we do not call the AX API for each modification to the tree.
+    //
+
+    for (int i = 0; i < view_count; ++i) {
+        struct view *view = view_list[i];
+        if (!space_is_visible(view->sid)) continue;
+        if (!view_is_dirty(view))         continue;
+
+        view_flush(view);
     }
 
     event_signal_push(SIGNAL_APPLICATION_VISIBLE, application);
@@ -297,17 +395,50 @@ static EVENT_CALLBACK(EVENT_HANDLER_APPLICATION_HIDDEN)
     int window_count;
     struct window **window_list = window_manager_find_application_windows(&g_window_manager, application, &window_count);
 
+    int view_count = 0;
+    struct view **view_list = ts_alloc_aligned(sizeof(struct view *), window_count);
+
     for (int i = 0; i < window_count; ++i) {
         struct window *window = window_list[i];
-
         border_hide(window);
 
         struct view *view = window_manager_find_managed_window(&g_window_manager, window);
         if (view) {
-            space_manager_untile_window(&g_space_manager, view, window);
+
+            //
+            // @cleanup
+            //
+            // :AXBatching
+            //
+            // NOTE(koekeishiya): Batch all operations and mark the view as dirty so that we can perform a single flush,
+            // making sure that each window is only moved and resized a single time, when the final layout has been computed.
+            // This is necessary to make sure that we do not call the AX API for each modification to the tree.
+            //
+
+            view_remove_window_node(view, window);
             window_manager_remove_managed_window(&g_window_manager, window->id);
             window_manager_purify_window(&g_window_manager, window);
+
+            view->is_dirty = true;
+            view_list[view_count++] = view;
         }
+    }
+
+    //
+    // @cleanup
+    //
+    // :AXBatching
+    //
+    // NOTE(koekeishiya): Flush previously batched operations if the view is marked as dirty.
+    // This is necessary to make sure that we do not call the AX API for each modification to the tree.
+    //
+
+    for (int i = 0; i < view_count; ++i) {
+        struct view *view = view_list[i];
+        if (!space_is_visible(view->sid)) continue;
+        if (!view_is_dirty(view))         continue;
+
+        view_flush(view);
     }
 
     event_signal_push(SIGNAL_APPLICATION_HIDDEN, application);
@@ -365,6 +496,7 @@ static EVENT_CALLBACK(EVENT_HANDLER_WINDOW_DESTROYED)
     struct window *window = context;
     debug("%s: %s %d\n", __FUNCTION__, window->application->name, window->id);
     assert(!window->id_ptr);
+    border_destroy(window);
 
     struct view *view = window_manager_find_managed_window(&g_window_manager, window);
     if (view) {
@@ -560,7 +692,7 @@ static EVENT_CALLBACK(EVENT_HANDLER_WINDOW_DEMINIMIZED)
         debug("%s: window %s %d is deminimized on active space\n", __FUNCTION__, window->application->name, window->id);
         if (window->border.id && border_should_order_in(window)) {
             border_ensure_same_space(window);
-            SLSOrderWindow(g_connection, window->border.id, 1, window->id);
+            SLSOrderWindow(g_connection, window->border.id, -1, window->id);
         }
         if (window_manager_should_manage_window(window) && !window_manager_find_managed_window(&g_window_manager, window)) {
             struct window *last_window = window_manager_find_window(&g_window_manager, g_window_manager.last_window_id);
@@ -615,7 +747,7 @@ static EVENT_CALLBACK(EVENT_HANDLER_SLS_WINDOW_MOVED)
     if (border->id && border_should_order_in(window)) {
         CGRect frame = {};
         SLSGetWindowBounds(g_connection, window_id, &frame);
-        SLSMoveWindow(g_connection, border->id, &frame.origin);
+        border_move(window, frame);
     }
 
     return EVENT_SUCCESS;
@@ -636,27 +768,9 @@ static EVENT_CALLBACK(EVENT_HANDLER_SLS_WINDOW_RESIZED)
 
     struct border *border = &window->border;
     if (border->id && border_should_order_in(window)) {
-        if (border->region) CFRelease(border->region);
-        if (border->path)   CGPathRelease(border->path);
-
         CGRect frame = {};
         SLSGetWindowBounds(g_connection, window_id, &frame);
-
-        CGSNewRegionWithRect(&frame, &border->region);
-        border->frame.size = frame.size;
-
-        border->path = CGPathCreateMutable();
-        CGPathAddRoundedRect(border->path, NULL, border->frame, 0, 0);
-
-        SLSDisableUpdate(g_connection);
-        SLSOrderWindow(g_connection, border->id, 0, 0);
-        SLSSetWindowShape(g_connection, border->id, 0.0f, 0.0f, border->region);
-        CGContextClearRect(border->context, border->frame);
-        CGContextAddPath(border->context, border->path);
-        CGContextStrokePath(border->context);
-        CGContextFlush(border->context);
-        SLSOrderWindow(g_connection, border->id, 1, window->id);
-        SLSReenableUpdate(g_connection);
+        border_resize(window, frame);
     }
 
     return EVENT_SUCCESS;
@@ -682,7 +796,7 @@ static EVENT_CALLBACK(EVENT_HANDLER_SLS_WINDOW_ORDER_CHANGED)
         int window_level = 0;
         SLSGetWindowLevel(g_connection, window_id, &window_level);
         SLSSetWindowLevel(g_connection, border->id, window_level);
-        SLSOrderWindow(g_connection, border->id, 1, window_id);
+        SLSOrderWindow(g_connection, border->id, -1, window_id);
     }
 
     return EVENT_SUCCESS;
@@ -706,7 +820,7 @@ static EVENT_CALLBACK(EVENT_HANDLER_SLS_WINDOW_IS_VISIBLE)
     struct border *border = &window->border;
     if (border->id && border_should_order_in(window)) {
         border_ensure_same_space(window);
-        SLSOrderWindow(g_connection, border->id, 1, window_id);
+        SLSOrderWindow(g_connection, border->id, -1, window_id);
     }
 
     return EVENT_SUCCESS;
@@ -750,11 +864,11 @@ static EVENT_CALLBACK(EVENT_HANDLER_SPACE_CHANGED)
         }
     }
 
-    if (space_is_user(g_space_manager.current_space_id)) {
+    if (!g_mission_control_active && space_is_user(g_space_manager.current_space_id)) {
+        window_manager_validate_and_check_for_windows_on_space(&g_space_manager, &g_window_manager, g_space_manager.current_space_id);
+
         if (view_is_invalid(view)) view_update(view);
         if (view_is_dirty(view))   view_flush(view);
-
-        window_manager_validate_and_check_for_windows_on_space(&g_space_manager, &g_window_manager, g_space_manager.current_space_id);
     }
 
     event_signal_push(SIGNAL_SPACE_CHANGED, NULL);
@@ -763,8 +877,14 @@ static EVENT_CALLBACK(EVENT_HANDLER_SPACE_CHANGED)
 
 static EVENT_CALLBACK(EVENT_HANDLER_DISPLAY_CHANGED)
 {
+    uint32_t new_did = display_manager_active_display_id();
+    if (g_display_manager.current_display_id == new_did) {
+        debug("%s: newly activated display %d was already active (%d)! ignoring event..\n", __FUNCTION__, g_display_manager.current_display_id, new_did);
+        return EVENT_FAILURE;
+    }
+
     g_display_manager.last_display_id = g_display_manager.current_display_id;
-    g_display_manager.current_display_id = display_manager_active_display_id();
+    g_display_manager.current_display_id = new_did;
 
     g_space_manager.last_space_id = g_space_manager.current_space_id;
     g_space_manager.current_space_id = display_space_id(g_display_manager.current_display_id);
@@ -786,11 +906,11 @@ static EVENT_CALLBACK(EVENT_HANDLER_DISPLAY_CHANGED)
         }
     }
 
-    if (space_is_user(g_space_manager.current_space_id)) {
+    if (!g_mission_control_active && space_is_user(g_space_manager.current_space_id)) {
+        window_manager_validate_and_check_for_windows_on_space(&g_space_manager, &g_window_manager, g_space_manager.current_space_id);
+
         if (view_is_invalid(view)) view_update(view);
         if (view_is_dirty(view))   view_flush(view);
-
-        window_manager_validate_and_check_for_windows_on_space(&g_space_manager, &g_window_manager, g_space_manager.current_space_id);
     }
 
     event_signal_push(SIGNAL_DISPLAY_CHANGED, NULL);
@@ -840,10 +960,10 @@ static EVENT_CALLBACK(EVENT_HANDLER_MOUSE_DOWN)
     if (g_mouse_state.current_action != MOUSE_MODE_NONE) goto out;
 
     CGPoint point = CGEventGetLocation(context);
-    debug("%s: %.2f, %.2f\n", __FUNCTION__, point.x, point.y);
+    uint32_t wid = CGEventGetIntegerValueField(context, kCGMouseEventWindowUnderMousePointer);
+    debug("%s: %d %.2f, %.2f\n", __FUNCTION__, wid, point.x, point.y);
 
-    struct window *window = window_manager_find_window_at_point(&g_window_manager, point);
-    if (!window) window = window_manager_focused_window(&g_window_manager);
+    struct window *window = wid ? window_manager_find_window(&g_window_manager, wid) : window_manager_find_window_at_point(&g_window_manager, point);
     if (!window || window_is_fullscreen(window)) goto out;
 
     g_mouse_state.window = window;
@@ -974,23 +1094,25 @@ static EVENT_CALLBACK(EVENT_HANDLER_MOUSE_DRAGGED)
 
         if (window_check_flag(g_mouse_state.window, WINDOW_FLOAT))
         {
-            scripting_addition_move_window(g_mouse_state.window->id, new_point.x, new_point.y);
+            if (!scripting_addition_move_window(g_mouse_state.window->id, new_point.x, new_point.y)) {
+                window_manager_move_window(g_mouse_state.window, new_point.x, new_point.y);
+            }
         }
         else
         {
             struct view *src_view = window_manager_find_managed_window(&g_window_manager, g_mouse_state.window);
             if (!src_view) goto out;
-
+            
             uint64_t cursor_sid = display_space_id(display_manager_point_display_id(point));
             struct view *dst_view = space_manager_find_view(&g_space_manager, cursor_sid);
-
+            
             struct window *window = window_manager_find_window_at_point_filtering_window(&g_window_manager, point, g_mouse_state.window->id);
             if (!window) window = window_manager_find_window_at_point(&g_window_manager, point);
             if (window == g_mouse_state.window) window = NULL;
-
+            
             struct window_node *a_node = view_find_window_node(src_view, g_mouse_state.window->id);
             struct window_node *b_node = window ? view_find_window_node(dst_view, window->id) : NULL;
-
+            
             if (window && a_node && b_node && a_node != b_node) {
                 mouse_drop_action_swap(&g_window_manager, src_view, a_node, g_mouse_state.window, dst_view, b_node, window);
             }
@@ -1022,6 +1144,8 @@ static EVENT_CALLBACK(EVENT_HANDLER_MOUSE_DRAGGED)
 
         if (window_check_flag(g_mouse_state.window, WINDOW_FLOAT))
             direction |= HANDLE_ABS;
+
+        //window_manager_resize_window_relative_internal(g_mouse_state.window, frame, direction, dx, dy, false);
 
         //if (dt < 16.0f)
         //    direction |= HANDLE_DONT_FLUSH;
@@ -1059,10 +1183,11 @@ static EVENT_CALLBACK(EVENT_HANDLER_MOUSE_MOVED)
     float dt = ((float) event_time - g_mouse_state.last_moved_time) * (1.0f / 1E6);
     if (dt < 8.0f) goto out;
 
+    uint32_t wid = CGEventGetIntegerValueField(context, kCGMouseEventWindowUnderMousePointer);
     CGPoint point = CGEventGetLocation(context);
     g_mouse_state.last_moved_time = event_time;
 
-    struct window *window = window_manager_find_window_at_point(&g_window_manager, point);
+    struct window *window = wid ? window_manager_find_window(&g_window_manager, wid) : window_manager_find_window_at_point(&g_window_manager, point);
     if (window) {
         if (window->id == g_window_manager.focused_window_id) goto out;
 
@@ -1070,7 +1195,6 @@ static EVENT_CALLBACK(EVENT_HANDLER_MOUSE_MOVED)
             if (!window_level_is_standard(window))                            goto out;
             if ((!window_is_standard(window)) && (!window_is_dialog(window))) goto out;
         }
-
 
         if (g_window_manager.ffm_mode == FFM_AUTOFOCUS) {
 
@@ -1124,7 +1248,10 @@ static EVENT_CALLBACK(EVENT_HANDLER_MOUSE_MOVED)
                     if (wid == window->id) break;
 
                     struct window *sub_window = window_manager_find_window(&g_window_manager, wid);
-                    if (!sub_window || !window_check_flag(sub_window, WINDOW_FLOAT)) continue;
+                    if (!sub_window) continue;
+
+                    if (!window_check_flag(sub_window, WINDOW_FLOAT)) continue;
+                    if (window_is_topmost(sub_window))                continue;
 
                     if (CGRectContainsRect(window->frame, sub_window->frame)) {
                         occludes_window = true;
@@ -1290,23 +1417,7 @@ static EVENT_CALLBACK(EVENT_HANDLER_DOCK_DID_RESTART)
 {
     debug("%s:\n", __FUNCTION__);
 
-    if (!workspace_is_macos_monterey() && !workspace_is_macos_bigsur() && scripting_addition_is_installed()) {
-        scripting_addition_load();
-
-        for (int window_index = 0; window_index < g_window_manager.window.capacity; ++window_index) {
-            struct bucket *bucket = g_window_manager.window.buckets[window_index];
-            while (bucket) {
-                if (bucket->value) {
-                    struct window *window = bucket->value;
-                    window_manager_purify_window(&g_window_manager, window);
-                }
-
-                bucket = bucket->next;
-            }
-        }
-    }
-
-    if (workspace_is_macos_monterey()) {
+    if (workspace_is_macos_monterey() || workspace_is_macos_ventura()) {
         mission_control_unobserve();
         mission_control_observe();
     }
@@ -1378,35 +1489,21 @@ static EVENT_CALLBACK(EVENT_HANDLER_SYSTEM_WOKE)
 
 static EVENT_CALLBACK(EVENT_HANDLER_DAEMON_MESSAGE)
 {
-    int cursor = 0;
-    int bytes_read = 0;
-    char *message = NULL;
-    char buffer[BUFSIZ];
+    FILE *rsp         = NULL;
+    int bytes_read    = 0;
+    int bytes_to_read = 0;
 
-    while ((bytes_read = read(param1, buffer, sizeof(buffer)-1)) > 0) {
-        message = ts_expand(message, cursor, bytes_read);
-        memcpy(message+cursor, buffer, bytes_read);
-        cursor += bytes_read;
+    if (read(param1, &bytes_to_read, sizeof(int)) == sizeof(int)) {
+        char *message = ts_alloc_unaligned(bytes_to_read);
 
-        if (((message+cursor)[-1] == '\0') &&
-            ((message+cursor)[-2] == '\0')) {
+        do {
+            int cur_read = read(param1, message+bytes_read, bytes_to_read-bytes_read);
+            if (cur_read <= 0) break;
 
-            //
-            // NOTE(koekeishiya): if our message ends with double null-terminator we
-            // have successfully received the entire message. this was added because
-            // on macOS Big Sur we would in a few rare cases read the message AND YET
-            // still enter another call to *read* above that would block, because the
-            // client was finished sending its message and is blocking in a poll loop
-            // waiting for a response.
-            //
+            bytes_read += cur_read;
+        } while (bytes_read < bytes_to_read);
 
-            break;
-        }
-    }
-
-    if (message && bytes_read != -1) {
-        FILE *rsp = fdopen(param1, "w");
-        if (rsp) {
+        if ((bytes_read == bytes_to_read) && (rsp = fdopen(param1, "w"))) {
             debug_message(__FUNCTION__, message);
             handle_message(rsp, message);
 

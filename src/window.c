@@ -109,9 +109,11 @@ err:
 
 void window_serialize(FILE *rsp, struct window *window)
 {
-    char *role = NULL;
-    char *subrole = NULL;
-    char *title = window_title(window);
+    char *role = window_role_ts(window);
+    char *subrole = window_subrole_ts(window);
+    char *app = window->application->name;
+    char *escaped_app = ts_string_escape(app);
+    char *title = window_title_ts(window);
     char *escaped_title = ts_string_escape(title);
     uint64_t sid = window_space(window);
     int space = space_manager_mission_control_index(sid);
@@ -123,23 +125,15 @@ void window_serialize(FILE *rsp, struct window *window)
     float opacity = window_opacity(window);
     bool grabbed = window == g_mouse_state.window;
 
-    CFStringRef cfrole = window_role(window);
-    if (cfrole) {
-        role = ts_cfstring_copy(cfrole);
-        CFRelease(cfrole);
-    }
-
-    CFStringRef cfsubrole = window_subrole(window);
-    if (cfsubrole) {
-        subrole = ts_cfstring_copy(cfsubrole);
-        CFRelease(cfsubrole);
-    }
-
     struct view *view = window_manager_find_managed_window(&g_window_manager, window);
     struct window_node *node = view ? view_find_window_node(view, window->id) : NULL;
 
     char split[MAXLEN];
     snprintf(split, sizeof(split), "%s", window_node_split_str[node && node->parent ? node->parent->split : 0]);
+
+    char child[MAXLEN];
+    snprintf(child, sizeof(child), "%s", window_node_child_str[node ? window_node_is_left_child(node) ? CHILD_FIRST : CHILD_SECOND : CHILD_NONE]);
+
     bool zoom_parent = node && node->zoom && node->zoom == node->parent;
     bool zoom_fullscreen = node && node->zoom && node->zoom == view->root;
     int stack_index = node && node->window_count > 1 ? window_node_index_of_window(node, window->id)+1 : 0;
@@ -158,6 +152,7 @@ void window_serialize(FILE *rsp, struct window *window)
             "\t\"level\":%d,\n"
             "\t\"opacity\":%.4f,\n"
             "\t\"split-type\":\"%s\",\n"
+            "\t\"split-child\":\"%s\",\n"
             "\t\"stack-index\":%d,\n"
             "\t\"can-move\":%s,\n"
             "\t\"can-resize\":%s,\n"
@@ -177,16 +172,17 @@ void window_serialize(FILE *rsp, struct window *window)
             "}",
             window->id,
             window->application->pid,
-            window->application->name,
+            escaped_app ? escaped_app : app,
             escaped_title ? escaped_title : title,
             window->frame.origin.x, window->frame.origin.y, window->frame.size.width, window->frame.size.height,
-            role ? role : "",
-            subrole ? subrole : "",
+            role,
+            subrole,
             display,
             space,
             window_level(window),
             opacity,
             split,
+            child,
             stack_index,
             json_bool(window_can_move(window)),
             json_bool(window_can_resize(window)),
@@ -205,25 +201,15 @@ void window_serialize(FILE *rsp, struct window *window)
             json_bool(grabbed));
 }
 
-char *window_title(struct window *window)
+char *window_title_ts(struct window *window)
 {
-    char *title = NULL;
     CFTypeRef value = NULL;
-
-#if 0
-    SLSCopyWindowProperty(g_connection, window->id, CFSTR("kCGSWindowTitle"), &value);
-#else
     AXUIElementCopyAttributeValue(window->ref, kAXTitleAttribute, &value);
-#endif
+    if (!value) return ts_string_copy("");
 
-    if (value) {
-        title = ts_cfstring_copy(value);
-        CFRelease(value);
-    } else {
-        title = ts_string_copy("");
-    }
-
-    return title;
+    char *result = ts_cfstring_copy(value);
+    CFRelease(value);
+    return result;
 }
 
 CGPoint window_ax_origin(struct window *window)
@@ -362,15 +348,21 @@ uint64_t window_tags(struct window *window)
 {
     uint64_t tags = 0;
     CFArrayRef window_ref = cfarray_of_cfnumbers(&window->id, sizeof(uint32_t), 1, kCFNumberSInt32Type);
+
     CFTypeRef query = SLSWindowQueryWindows(g_connection, window_ref, 1);
+    if (!query) goto err2;
+
     CFTypeRef iterator = SLSWindowQueryResultCopyWindows(query);
+    if (!iterator) goto err1;
 
     if (SLSWindowIteratorAdvance(iterator)) {
         tags = SLSWindowIteratorGetTags(iterator);
     }
 
-    CFRelease(query);
     CFRelease(iterator);
+err1:
+    CFRelease(query);
+err2:
     CFRelease(window_ref);
     return tags;
 }
@@ -382,11 +374,31 @@ CFStringRef window_role(struct window *window)
     return role;
 }
 
+char *window_role_ts(struct window *window)
+{
+    CFStringRef role = window_role(window);
+    if (!role) return ts_string_copy("");
+
+    char *result = ts_cfstring_copy(role);
+    CFRelease(role);
+    return result;
+}
+
 CFStringRef window_subrole(struct window *window)
 {
     const void *srole = NULL;
     AXUIElementCopyAttributeValue(window->ref, kAXSubroleAttribute, &srole);
     return srole;
+}
+
+char *window_subrole_ts(struct window *window)
+{
+    CFStringRef subrole = window_subrole(window);
+    if (!subrole) return ts_string_copy("");
+
+    char *result = ts_cfstring_copy(subrole);
+    CFRelease(subrole);
+    return result;
 }
 
 bool window_level_is_standard(struct window *window)
@@ -464,7 +476,6 @@ struct window *window_create(struct application *application, AXUIElementRef win
     window->ref = window_ref;
     window->id = window_id;
     window->id_ptr = &window->id;
-    SLSGetWindowOwner(g_connection, window->id, &window->connection);
     window->frame = window_ax_frame(window);
     window_set_flag(window, WINDOW_SHADOW);
 
@@ -486,7 +497,6 @@ struct window *window_create(struct application *application, AXUIElementRef win
 
 void window_destroy(struct window *window)
 {
-    border_destroy(window);
     CFRelease(window->ref);
     free(window);
 }

@@ -5,6 +5,56 @@ All notable changes to this project will be documented in this file.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Changed
+- Updated scripting-addition to support macOS Ventura 13.0.0 [#1297](https://github.com/koekeishiya/yabai/issues/1297)
+- Properly escape application name when returned in window queries [#1489](https://github.com/koekeishiya/yabai/issues/1489)
+- Remove window tags used for debugging purposes from result of window query because it could cause a crash under certain conditions when a window closes [#1475](https://github.com/koekeishiya/yabai/issues/1475)
+
+## [5.0.1] - 2022-09-26
+### Changed
+- Only allow *window_animation_duration* to be set if System Integrity Protection is partially disabled [#148](https://github.com/koekeishiya/yabai/issues/148)
+- Output useless dummy .plist file for scripting addition to silence weird AppleScript warning [#1449](https://github.com/koekeishiya/yabai/issues/1449)
+
+## [5.0.0] - 2022-09-23
+### Added
+- Support for animating window move/resize operations (*config window_animation_duration*) [#148](https://github.com/koekeishiya/yabai/issues/148)
+- Command to manually specify the default *split_type* [#1423](https://github.com/koekeishiya/yabai/issues/1423)
+- Window borders are now placed below and outside the window; new commands to specify hidpi, blur to act as a backdrop, and corner radius [#1430](https://github.com/koekeishiya/yabai/issues/1430)
+- Add *split-child* to output of window query and introduce new options for WINDOW_SEL: *sibling*, *first_nephew*, *second_nephew*, *uncle*, *first_cousin*, *second_cousin* [#192](https://github.com/koekeishiya/yabai/issues/192)
+
+### Changed
+- Implemented a workaround to support *window_opacity_duration*, bypassing the Apple bug [#1406](https://github.com/koekeishiya/yabai/issues/1406)
+- Fix regression causing a window to be moved to the active space of an inactive display when sent to an inactive space of an inactive display [#1053](https://github.com/koekeishiya/yabai/issues/1053)
+- Fix regression causing hidden windows to not show in window queries [#1421](https://github.com/koekeishiya/yabai/issues/1421)
+- Clamp split ratio instead of resetting when an out of range / invalid value is given [#1401](https://github.com/koekeishiya/yabai/pull/1401)
+- Applying rule with property *manage=on* would cause both minimized and hidden windows to be managed, even though the window is not visible [#1418](https://github.com/koekeishiya/yabai/issues/1418)
+- Fix regression causing window sticky to not work properly [#1424](https://github.com/koekeishiya/yabai/issues/1424)
+- Make window zoom more flexible, allow parent-zoomed window to enter fullscreen and vice versa [#1429](https://github.com/koekeishiya/yabai/issues/1429)
+- Fix border size issue when moving a window to a different display on macOS Big Sur [#1229](https://github.com/koekeishiya/yabai/issues/1229)
+- Check Dock.app isFinishedLaunching property before attempting to inject scripting addition [#749](https://github.com/koekeishiya/yabai/issues/749)
+- Properly update window ordering when a window is added to the top of a stack [#1311](https://github.com/koekeishiya/yabai/issues/1311)
+- Properly update insertion point in a window stack when the marked window is removed from the stack [#1275](https://github.com/koekeishiya/yabai/issues/1275)
+- Window zoom will now persist through changes to the bsp layout [#864](https://github.com/koekeishiya/yabai/issues/864)
+
+### Removed
+- Removed support for macOS High Sierra, Mojave, and Catalina.
+- Removed launch arguments *--install-sa* and *--check-sa*. Running *--load-sa* will automatically install/update the scripting-addition when necessary [#1287](https://github.com/koekeishiya/yabai/issues/1287)
+
+## [4.0.4] - 2022-09-08
+### Changed
+- Fix null-deref when an application is spawned with a non-standard window [#1399](https://github.com/koekeishiya/yabai/issues/1399)
+
+## [4.0.3] - 2022-09-07
+### Changed
+- Allow combining commands for *config*, *space*, and *window* domains [#1371](https://github.com/koekeishiya/yabai/issues/1371)
+- Fallback to using the AX API for *mouse_action move* if the scripting-addition is not available [#1376](https://github.com/koekeishiya/yabai/issues/1376)
+- Add *role* and *subrole* filter to window rules [#1398](https://github.com/koekeishiya/yabai/issues/1398)
+
+## [4.0.2] - 2022-08-24
+### Changed
+- Fixed an issue that in rare occasions caused yabai to freeze when focusing an inactve space on an inactive display [#1309](https://github.com/koekeishiya/yabai/issues/1309).
+- Fixed an issue that caused a window to incorrectly become focused when assigned to a space through rules [#1370](https://github.com/koekeishiya/yabai/issues/1370)
+- Fixed an issue that caused windows to snap back to its original position when moved between displays (to an inactive space) using mission-control [#820](https://github.com/koekeishiya/yabai/issues/820)
 
 ## [4.0.1] - 2022-05-17
 ### Changed
@@ -388,7 +438,12 @@ The *window_destroyed* signal is now triggered for windows that are implicitly d
 ### Added
 - First official release
 
-[Unreleased]: https://github.com/koekeishiya/yabai/compare/v4.0.1...HEAD
+[Unreleased]: https://github.com/koekeishiya/yabai/compare/v5.0.1...HEAD
+[5.0.1]: https://github.com/koekeishiya/yabai/compare/v5.0.0...v5.0.1
+[5.0.0]: https://github.com/koekeishiya/yabai/compare/v4.0.4...v5.0.0
+[4.0.4]: https://github.com/koekeishiya/yabai/compare/v4.0.3...v4.0.4
+[4.0.3]: https://github.com/koekeishiya/yabai/compare/v4.0.2...v4.0.3
+[4.0.2]: https://github.com/koekeishiya/yabai/compare/v4.0.1...v4.0.2
 [4.0.1]: https://github.com/koekeishiya/yabai/compare/v4.0.0...v4.0.1
 [4.0.0]: https://github.com/koekeishiya/yabai/compare/v3.3.10...v4.0.0
 [3.3.10]: https://github.com/koekeishiya/yabai/compare/v3.3.9...v3.3.10
