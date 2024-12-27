@@ -76,6 +76,8 @@ struct mouse_state
     uint32_t ffm_window_id;
     uint8_t direction;
     struct window_node *feedback_node;
+
+    CGPoint resize_down_location;
 };
 
 static char *mouse_mod_str[] =

@@ -378,6 +378,7 @@ static EVENT_HANDLER(APPLICATION_FRONT_SWITCHED)
     }
 
     window_did_receive_focus(&g_window_manager, &g_mouse_state, window);
+    //window_manager_make_window_topmost(&g_window_manager, window, true); // ADDED
     event_signal_push(SIGNAL_WINDOW_FOCUSED, window);
 }
 #pragma clang diagnostic pop
@@ -535,7 +536,8 @@ static EVENT_HANDLER(WINDOW_CREATED)
         }
     }
 
-    if (window_manager_should_manage_window(window) && !window_manager_find_managed_window(&g_window_manager, window)) {
+    window_set_flag(window, WINDOW_FLOAT); // ADDED
+    if (window_manager_should_manage_window(window) && !window_manager_find_managed_window(&g_window_manager, window) && !window_check_flag(window, WINDOW_FLOAT)) { // ADDED: last condition
         uint64_t sid;
 
         if (g_window_manager.window_origin_mode == WINDOW_ORIGIN_DEFAULT) {
@@ -684,6 +686,8 @@ static EVENT_HANDLER(WINDOW_RESIZED)
         debug("%s: %d was resized while the application is hidden, ignoring event..\n", __FUNCTION__, window_id);
         return;
     }
+
+    window->resize_done = true; // ADDED
 
     CGRect new_frame = window_ax_frame(window);
     if (CGRectEqualToRect(new_frame, window->frame)) {
@@ -1022,6 +1026,12 @@ static EVENT_HANDLER(MOUSE_DOWN)
         if (point.y > frame_mid.y) g_mouse_state.direction |= HANDLE_BOTTOM;
     }
 
+    // ADDED:
+    if (g_mouse_state.current_action == MOUSE_MODE_RESIZE) {
+        g_mouse_state.resize_down_location = point;
+        g_mouse_state.window->resize_done = true;
+    }
+
 out:
     CFRelease(context);
 }
@@ -1096,7 +1106,11 @@ static EVENT_HANDLER(MOUSE_UP)
             mouse_drop_no_target(&g_space_manager, &g_window_manager, src_view, dst_view, g_mouse_state.window, a_node);
         }
     } else if (info.changed_position || info.changed_size) {
-        mouse_drop_try_adjust_bsp_grid(&g_window_manager, src_view, g_mouse_state.window, &info);
+        //mouse_drop_try_adjust_bsp_grid(&g_window_manager, src_view, g_mouse_state.window, &info);
+        if (g_mouse_state.current_action != MOUSE_MODE_RESIZE) { // ADDED
+            //debug("adjust %u\n", g_mouse_state.window->id);
+            mouse_drop_try_adjust_bsp_grid(&g_window_manager, src_view, g_mouse_state.window, &info);
+        }
     }
 
 err:
@@ -1132,22 +1146,86 @@ static EVENT_HANDLER(MOUSE_DRAGGED)
             CGRect bounds = display_bounds_constrained(did, false);
             if (new_point.y < bounds.origin.y) new_point.y = bounds.origin.y;
         }
-
+        // REMOVED
+#if 0
         if (!scripting_addition_move_window(g_mouse_state.window->id, new_point.x, new_point.y)) {
             window_manager_move_window(g_mouse_state.window, new_point.x, new_point.y);
+        }
+#endif
+        // ADDED:
+        if (window_check_flag(g_mouse_state.window, WINDOW_FLOAT))
+        {
+            if (!scripting_addition_move_window(g_mouse_state.window->id, new_point.x, new_point.y)) {
+                window_manager_move_window(g_mouse_state.window, new_point.x, new_point.y);
+            }
+        }
+        else
+        {
+            struct view *src_view = window_manager_find_managed_window(&g_window_manager, g_mouse_state.window);
+            if (!src_view) goto out;
+            
+            uint64_t cursor_sid = display_space_id(display_manager_point_display_id(point));
+            struct view *dst_view = space_manager_find_view(&g_space_manager, cursor_sid);
+            
+            struct window *window = window_manager_find_window_at_point_filtering_window(&g_window_manager, point, g_mouse_state.window->id);
+            if (!window) window = window_manager_find_window_at_point(&g_window_manager, point);
+            if (window == g_mouse_state.window) window = NULL;
+            
+            struct window_node *a_node = view_find_window_node(src_view, g_mouse_state.window->id);
+            struct window_node *b_node = window ? view_find_window_node(dst_view, window->id) : NULL;
+
+            if (window && !window_check_flag(window, WINDOW_FLOAT) && a_node && b_node && a_node != b_node) {
+                //debug("Swap %u %u\n", g_mouse_state.window->id, window->id);
+                mouse_drop_action_swap(&g_window_manager, src_view, a_node, g_mouse_state.window, dst_view, b_node, window);
+            }
         }
     } else if (g_mouse_state.current_action == MOUSE_MODE_RESIZE) {
         uint64_t event_time = read_os_timer();
         float dt = ((float) event_time - g_mouse_state.last_moved_time) * (1000.0f / (float)read_os_freq());
-        if (dt < 67.67f) goto out;
+        //if (dt < 67.67f) goto out; // REMOVED
 
-        int dx = point.x - g_mouse_state.down_location.x;
-        int dy = point.y - g_mouse_state.down_location.y;
+        float rate = 8.0f; // ADDED
+        if (dt < rate) goto out; // ADDED
 
-        window_manager_resize_window_relative_internal(g_mouse_state.window, g_mouse_state.window->frame, g_mouse_state.direction, dx, dy, false);
+        if (!g_mouse_state.window->resize_done && dt < rate * 4.0f) goto out; // ADDED
 
-        g_mouse_state.last_moved_time = event_time;
-        g_mouse_state.down_location = point;
+        int dx = point.x - g_mouse_state.resize_down_location.x; // ALTERED
+        int dy = point.y - g_mouse_state.resize_down_location.y; // ALTERED
+        if (dx == 0.0f && dy == 0.0f) goto out; // ADDED
+
+        uint8_t direction = 0;
+        CGRect frame = g_mouse_state.window->frame;
+        CGPoint frame_mid = { CGRectGetMidX(frame), CGRectGetMidY(frame) };
+
+        // ALTERED
+        if (g_mouse_state.down_location.x < frame_mid.x) direction |= HANDLE_LEFT;
+        if (g_mouse_state.down_location.y < frame_mid.y) direction |= HANDLE_TOP;
+        if (g_mouse_state.down_location.x > frame_mid.x) direction |= HANDLE_RIGHT;
+        if (g_mouse_state.down_location.y > frame_mid.y) direction |= HANDLE_BOTTOM;
+
+        // REMOVED
+        //window_manager_resize_window_relative_internal(g_mouse_state.window, frame, direction, dx, dy, false);
+
+        // ADDED START
+        if (window_check_flag(g_mouse_state.window, WINDOW_FLOAT))
+            direction |= HANDLE_ABS;
+        window_manager_resize_window_relative(&g_window_manager, g_mouse_state.window, direction, dx, dy, false);
+
+        if (dt >= rate) {
+            g_mouse_state.last_moved_time = event_time;
+        }
+        else if (!window_check_flag(g_mouse_state.window, WINDOW_FLOAT))
+        {
+            window_manager_resize_window_relative_internal(g_mouse_state.window, g_mouse_state.window->frame, direction, dx, dy, false);
+        }
+
+        g_mouse_state.window->resize_done = false;
+        g_mouse_state.resize_down_location = point;
+        // ADDED END
+
+        // REMOVED
+        //g_mouse_state.last_moved_time = event_time;
+        //g_mouse_state.down_location = point;
     }
 
     struct view *src_view = window_manager_find_managed_window(&g_window_manager, g_mouse_state.window);
@@ -1222,6 +1300,15 @@ static EVENT_HANDLER(MOUSE_MOVED)
     if (g_window_manager.ffm_mode == FFM_DISABLED) goto out;
     if (mission_control_is_active())               goto out;
     if (g_mouse_state.ffm_window_id)               goto out;
+
+    // ADDED START
+    uint64_t event_time = read_os_timer();
+    float dt = ((float) event_time - g_mouse_state.last_moved_time) * (1000.0f / (float)read_os_freq());
+
+    float rate = 8.0f;
+    if (dt < rate) goto out;
+    // ADDED END
+
 
     CGPoint point = CGEventGetLocation(context);
     struct window *window = window_manager_find_window_at_point(&g_window_manager, point);
